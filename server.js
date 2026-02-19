@@ -2,16 +2,22 @@ const express = require('express');
 const sql = require('mssql');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const path = require('path'); // Línea nueva para manejar rutas de archivos
 
 const app = express();
+
+// --- CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS ---
+// Esto le dice a Render que entregue index.html, style.css, etc.
+app.use(express.static(path.join(__dirname, './')));
+
 app.use(cors());
 app.use(bodyParser.json());
 
 // CONFIGURACIÓN DE CREDENCIALES
 const config = {
-    user: 'biberlitzta', // Reemplaza
-    password: 'Ingenieria50.##_', // Reemplaza
-    server: 'berlitz.database.windows.net', // Reemplaza
+    user: 'biberlitzta',
+    password: 'Ingenieria50.##_', 
+    server: 'berlitz.database.windows.net',
     database: 'dwberlitz',
     options: {
         encrypt: true, 
@@ -19,13 +25,17 @@ const config = {
     }
 };
 
+// --- RUTA PARA CARGAR LA PÁGINA WEB ---
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // Obtener registros (Consulta amigable con JOIN)
 app.get('/eventos', async (req, res) => {
     try {
         let pool = await sql.connect(config);
         const anioActual = new Date().getFullYear();
         
-        // Esta consulta trae por defecto el año en curso para no saturar la red
         let result = await pool.request().query(`
             SELECT E.ID, E.Descripción, E.Fecha, D.Des_pipeline 
             FROM [hubspot].[EventosyFestivos] E
@@ -39,8 +49,7 @@ app.get('/eventos', async (req, res) => {
     }
 });
 
-// Nueva ruta para obtener la lista de Pipelines para el desplegable
-// Ruta para obtener la lista de Pipelines (Dim_pipeline)
+// Ruta para obtener la lista de Pipelines
 app.get('/pipelines', async (req, res) => {
     try {
         let pool = await sql.connect(config);
@@ -49,7 +58,7 @@ app.get('/pipelines', async (req, res) => {
             FROM [hubspot].[Dim_pipeline]
             ORDER BY Des_pipeline ASC
         `);
-        res.json(result.recordset); // Esto envía los datos al navegador
+        res.json(result.recordset);
     } catch (err) {
         console.error("Error en /pipelines:", err);
         res.status(500).send(err.message);
@@ -86,6 +95,6 @@ app.post('/eliminar-evento', async (req, res) => {
     }
 });
 
-
+// INICIO DEL SERVIDOR
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor activo`));
+app.listen(PORT, () => console.log(`Servidor activo en puerto ${PORT}`));
