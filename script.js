@@ -1,6 +1,7 @@
 const API_URL = 'https://gestion-eventos-berlitz.onrender.com/eventos';
 const PIPELINES_URL = 'https://gestion-eventos-berlitz.onrender.com/pipelines';
 const ELIMINAR_URL = 'https://gestion-eventos-berlitz.onrender.com/eliminar-evento';
+let datosGlobales = [];
 
 // 1. CARGA INICIAL: Se ejecuta al abrir la página
 window.onload = async function() {
@@ -160,3 +161,4 @@ function mostrarConsulta() {
     document.getElementById('vistaConsulta').style.display = 'block';
 
 }
+
