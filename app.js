@@ -875,12 +875,13 @@ function abrirModalCrearUsuario() {
                 <option value="Viewer">Solo Lectura</option>
             </select>
         </div>
+        <div class="form-group"><label class="form-label">Contraseña *</label><input type="password" id="nuPass" class="form-control" placeholder="Mínimo 6 caracteres"></div>
         <div style="background:var(--info-pale);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--info);">
-            <i class="fa-solid fa-circle-info"></i> Se enviará un correo con las credenciales temporales al usuario.
+            <i class="fa-solid fa-circle-info"></i> El usuario ingresará con esta contraseña en su primer inicio de sesión y luego deberá cambiarla.
         </div>`;
     const footer = `
         <button class="btn btn-secondary" onclick="cerrarModal('modalCrearUser')">Cancelar</button>
-        <button class="btn btn-primary"   onclick="crearUsuario()"><i class="fa-solid fa-user-plus"></i> Crear y Enviar Correo</button>`;
+        <button class="btn btn-primary"   onclick="crearUsuario()"><i class="fa-solid fa-user-plus"></i> Crear Usuario</button>`;
     crearModal('modalCrearUser', '👤 Nuevo Usuario', body, footer);
 }
 
@@ -889,13 +890,14 @@ async function crearUsuario() {
     const nombre = document.getElementById('nuNombre')?.value?.trim();
     const apellido = document.getElementById('nuApellido')?.value?.trim();
     const rol = document.getElementById('nuRol')?.value;
-    if (!email || !nombre || !rol) { showToast('Email, nombre y rol son requeridos', 'warning'); return; }
+    const contraseña = document.getElementById('nuPass')?.value;
+    if (!email || !nombre || !rol || !contraseña) { showToast('Email, nombre, rol y contraseña son requeridos', 'warning'); return; }
     try {
-        const resp = await fetchAutenticado(`${API}/api/auth/crear-usuario`, { method: 'POST', body: JSON.stringify({ email, nombre, apellido, rol }) });
+        const resp = await fetchAutenticado(`${API}/api/auth/crear-usuario`, { method: 'POST', body: JSON.stringify({ email, nombre, apellido, rol, contraseña }) });
         const data = await resp.json();
         if (resp.ok) {
             cerrarModal('modalCrearUser');
-            showToast(`✅ Usuario creado. Contraseña temporal: ${data.usuario?.contraseñaTemporal}`, 'success');
+            showToast(`✅ Usuario creado exitosamente.`, 'success');
             setTimeout(cargarUsuarios, 500);
         } else showToast(data.error || 'Error al crear usuario', 'error');
     } catch (err) { showToast('Error de conexión', 'error'); }
@@ -915,6 +917,7 @@ function abrirModalEditarUsuario(id) {
                 <option value="Viewer"  ${u.Nombre_Rol === 'Viewer' ? 'selected' : ''}>Solo Lectura</option>
             </select>
         </div>
+        <div class="form-group"><label class="form-label">Nueva Contraseña (Opcional)</label><input type="password" id="euPass" class="form-control" placeholder="Solo si deseas cambiarla"></div>
         <div class="form-group" style="display:flex;align-items:center;gap:12px;">
             <label class="form-label" style="margin:0">Activo:</label>
             <label class="toggle-switch"><input type="checkbox" id="euActivo" ${u.Activo ? 'checked' : ''}><span class="toggle-slider"></span></label>
@@ -930,8 +933,9 @@ async function guardarUsuario(id) {
     const apellido = document.getElementById('euApellido')?.value?.trim();
     const rol = document.getElementById('euRol')?.value;
     const activo = document.getElementById('euActivo')?.checked;
+    const contraseña = document.getElementById('euPass')?.value;
     try {
-        const resp = await fetchAutenticado(`${API}/api/auth/usuarios/${id}`, { method: 'PUT', body: JSON.stringify({ nombre, apellido, rol, activo }) });
+        const resp = await fetchAutenticado(`${API}/api/auth/usuarios/${id}`, { method: 'PUT', body: JSON.stringify({ nombre, apellido, rol, activo, contraseña }) });
         const data = await resp.json();
         if (resp.ok) { cerrarModal('modalEditUser'); showToast(data.mensaje, 'success'); cargarUsuarios(); }
         else showToast(data.error || 'Error', 'error');
@@ -1218,7 +1222,7 @@ async function abrirModalMetaAsesor(id) {
 
         const respOw = await fetchAutenticado(`${API}/api/metas-asesor/owners`);
         ownersCache = await respOw.json();
-        ownerOptions += ownersCache.map(o => `<option value="${escapeHtml(o.OwnerName)}" data-email="${escapeHtml(o.Email || '')}" ${m && m.Asesor === o.OwnerName ? 'selected' : ''}>${escapeHtml(o.OwnerName)}</option>`).join('');
+        ownerOptions += ownersCache.map(o => `<option value="${escapeHtml(o.OwnerId)}" ${m && m.ID_Owner === o.OwnerId ? 'selected' : ''}>${escapeHtml(o.OwnerName)}</option>`).join('');
 
         const respDiv = await fetchAutenticado(`${API}/api/metas-asesor/divisas`);
         const divisas = await respDiv.json();
@@ -1230,7 +1234,6 @@ async function abrirModalMetaAsesor(id) {
             <div class="form-group"><label class="form-label">Período *</label><input type="month" id="maPeriodo" class="form-control" value="${m?.ID_Periodo ? String(m.ID_Periodo).substring(0, 7) : ''}"></div>
             <div class="form-group"><label class="form-label">País / Pipeline *</label><select id="maPipeline" class="form-control">${pipeOptions}</select></div>
             <div class="form-group"><label class="form-label">Asesor *</label><select id="maOwner" class="form-control">${ownerOptions}</select></div>
-            <div class="form-group"><label class="form-label">Correo</label><input type="email" id="maCorreo" class="form-control" value="${escapeHtml(m?.CORREO || '')}" readonly style="background:var(--bg-subtle);"></div>
             <div class="form-group"><label class="form-label">Moneda *</label><select id="maMoneda" class="form-control">${monedaOptions}</select></div>
             <div class="form-group"><label class="form-label">Recaudo</label><input type="number" id="maRecaudo" class="form-control" value="${m?.Recaudo || 0}" step="0.01" min="0"></div>
             <div class="form-group"><label class="form-label">Número de Ventas</label><input type="number" id="maVentas" class="form-control" value="${m?.NumeroVentas || 0}" min="0"></div>
@@ -1241,13 +1244,6 @@ async function abrirModalMetaAsesor(id) {
         <button class="btn btn-secondary" onclick="cerrarModal('modalMetaAsesor')">Cancelar</button>
         <button class="btn btn-primary"   onclick="guardarMetaAsesor(${id || 'null'})"><i class="fa-solid fa-save"></i> ${id ? 'Actualizar' : 'Guardar'}</button>`;
     crearModal('modalMetaAsesor', id ? '✏️ Editar Meta Asesor' : '🧑‍💼 Nueva Meta Asesor', body, footer, 'modal-lg');
-
-    // Auto-llenar correo al seleccionar asesor
-    document.getElementById('maOwner')?.addEventListener('change', function () {
-        const selected = this.options[this.selectedIndex];
-        const email = selected?.getAttribute('data-email') || '';
-        document.getElementById('maCorreo').value = email;
-    });
 }
 
 async function guardarMetaAsesor(id) {
@@ -1257,15 +1253,14 @@ async function guardarMetaAsesor(id) {
     const payload = {
         id_periodo,
         id_pipeline: document.getElementById('maPipeline')?.value,
-        asesor: document.getElementById('maOwner')?.value,
-        correo: document.getElementById('maCorreo')?.value,
+        id_owner: document.getElementById('maOwner')?.value,
         moneda: document.getElementById('maMoneda')?.value,
         recaudo: document.getElementById('maRecaudo')?.value,
         numero_ventas: document.getElementById('maVentas')?.value,
         tier: document.getElementById('maTier')?.value
     };
 
-    if (!payload.id_periodo || !payload.id_pipeline || !payload.asesor || !payload.moneda) {
+    if (!payload.id_periodo || !payload.id_pipeline || !payload.id_owner || !payload.moneda) {
         showToast('Período, País, Asesor y Moneda son requeridos', 'warning'); return;
     }
 
