@@ -1,15 +1,20 @@
-const express = require('express');
-const bcrypt = require('bcrypt');
-const sql = require('mssql');
-const { generarToken, verificarToken, esAdmin } = require('../middleware/auth');
+// routes/auth.js — Autenticación, usuarios y recuperación de contraseña
+const express  = require('express');
+const bcrypt   = require('bcrypt');
+const { v4: uuidv4 } = require('uuid');
+const { getPool, sql } = require('../utils/db-pool');
+const { generarToken, verificarToken, esAdmin, cargarPermisosModulos } = require('../middleware/auth');
 const { registrarAuditoria, obtenerIP } = require('../middleware/auditoria');
+const { enviarCorreoBienvenida, enviarCorreoRecuperacion } = require('../utils/mailer');
 
 const router = express.Router();
 
-// --- LOGIN ---
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/login
+// ─────────────────────────────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
     const { email, contraseña } = req.body;
-    const ip = obtenerIP(req);
+    const ip        = obtenerIP(req);
     const userAgent = req.headers['user-agent'];
 
     if (!email || !contraseña) {
@@ -17,55 +22,51 @@ router.post('/login', async (req, res) => {
     }
 
     try {
-        let pool = await sql.connect(req.app.locals.dbConfig);
+        const pool = await getPool();
 
-        // Obtener usuario con sus roles y permisos
-        let result = await pool.request()
-            .input('email', sql.NVarChar, email)
+        const result = await pool.request()
+            .input('email', sql.NVarChar, email.trim().toLowerCase())
             .query(`
-                SELECT u.ID_Usuario, u.Email, u.Nombre, u.Contraseña_Hash, u.Activo, u.Bloqueado, u.Intentos_Fallidos,
-                       r.ID_Rol, r.Nombre_Rol, r.Permisos_Ver, r.Permisos_Crear, r.Permisos_Editar, 
-                       r.Permisos_Eliminar, r.Permisos_Gestionar_Usuarios
+                SELECT u.ID_Usuario, u.Email, u.Nombre, u.Apellido, u.Contraseña_Hash, 
+                       u.Activo, u.Bloqueado, u.Intentos_Fallidos, u.Primer_Login,
+                       r.ID_Rol, r.Nombre_Rol, r.Permisos_Ver, r.Permisos_Crear, 
+                       r.Permisos_Editar, r.Permisos_Eliminar, r.Permisos_Gestionar_Usuarios
                 FROM [hubspot].[Usuarios] u
                 JOIN [hubspot].[Roles] r ON u.ID_Rol = r.ID_Rol
-                WHERE u.Email = @email
+                WHERE LOWER(u.Email) = @email
             `);
 
         const usuario = result.recordset[0];
 
         if (!usuario) {
-            await registrarAuditoria(pool, null, 'LOGIN', 'Usuarios', null, `Intento de login con email no registrado: ${email}`, null, null, ip, userAgent, 'ERROR');
-            await pool.close();
+            await registrarAuditoria(pool, null, 'LOGIN', 'Usuarios', null,
+                `Email no registrado: ${email}`, null, null, ip, userAgent, 'ERROR');
             return res.status(401).json({ error: 'Credenciales inválidas' });
         }
 
-        // Verificar si está bloqueado
         if (usuario.Bloqueado) {
-            await registrarAuditoria(pool, usuario.ID_Usuario, 'LOGIN', 'Usuarios', usuario.ID_Usuario, 'Intento de login en cuenta bloqueada', null, null, ip, userAgent, 'ERROR');
-            await pool.close();
+            await registrarAuditoria(pool, usuario.ID_Usuario, 'LOGIN', 'Usuarios', usuario.ID_Usuario,
+                'Login en cuenta bloqueada', null, null, ip, userAgent, 'ERROR');
             return res.status(403).json({ error: 'Cuenta bloqueada. Contacta al administrador.' });
         }
 
-        // Verificar si está activo
         if (!usuario.Activo) {
-            await registrarAuditoria(pool, usuario.ID_Usuario, 'LOGIN', 'Usuarios', usuario.ID_Usuario, 'Intento de login en cuenta inactiva', null, null, ip, userAgent, 'ERROR');
-            await pool.close();
-            return res.status(403).json({ error: 'Cuenta inactiva' });
+            await registrarAuditoria(pool, usuario.ID_Usuario, 'LOGIN', 'Usuarios', usuario.ID_Usuario,
+                'Login en cuenta inactiva', null, null, ip, userAgent, 'ERROR');
+            return res.status(403).json({ error: 'Cuenta inactiva. Contacta al administrador.' });
         }
 
-        // Verificar contraseña
         const contraseñaValida = await bcrypt.compare(contraseña, usuario.Contraseña_Hash);
 
         if (!contraseñaValida) {
-            // Incrementar intentos fallidos
-            const nuevoIntento = usuario.Intentos_Fallidos + 1;
-            const bloqueado = nuevoIntento >= 5 ? 1 : 0;
-            const fechaBloqueo = bloqueado ? new Date() : null;
+            const nuevoIntento  = usuario.Intentos_Fallidos + 1;
+            const bloqueado     = nuevoIntento >= 5 ? 1 : 0;
+            const fechaBloqueo  = bloqueado ? new Date() : null;
 
             await pool.request()
-                .input('id', sql.Int, usuario.ID_Usuario)
-                .input('intentos', sql.Int, nuevoIntento)
-                .input('bloqueado', sql.Bit, bloqueado)
+                .input('id',           sql.Int,      usuario.ID_Usuario)
+                .input('intentos',     sql.Int,      nuevoIntento)
+                .input('bloqueado',    sql.Bit,      bloqueado)
                 .input('fecha_bloqueo', sql.DateTime, fechaBloqueo)
                 .query(`
                     UPDATE [hubspot].[Usuarios]
@@ -73,14 +74,20 @@ router.post('/login', async (req, res) => {
                     WHERE ID_Usuario = @id
                 `);
 
-            await registrarAuditoria(pool, usuario.ID_Usuario, 'LOGIN', 'Usuarios', usuario.ID_Usuario, `Contraseña incorrecta (intento ${nuevoIntento}/5)`, null, null, ip, userAgent, 'ERROR');
-            await pool.close();
-            return res.status(401).json({ error: 'Credenciales inválidas' });
+            await registrarAuditoria(pool, usuario.ID_Usuario, 'LOGIN', 'Usuarios', usuario.ID_Usuario,
+                `Contraseña incorrecta (intento ${nuevoIntento}/5)`, null, null, ip, userAgent, 'ERROR');
+
+            const intentosRestantes = 5 - nuevoIntento;
+            return res.status(401).json({
+                error: bloqueado
+                    ? 'Cuenta bloqueada por demasiados intentos. Contacta al administrador.'
+                    : `Credenciales inválidas. ${intentosRestantes} intento(s) restante(s).`
+            });
         }
 
-        // Login exitoso - resetear intentos
+        // Login exitoso
         await pool.request()
-            .input('id', sql.Int, usuario.ID_Usuario)
+            .input('id',          sql.Int,      usuario.ID_Usuario)
             .input('ultimo_login', sql.DateTime, new Date())
             .query(`
                 UPDATE [hubspot].[Usuarios]
@@ -88,152 +95,319 @@ router.post('/login', async (req, res) => {
                 WHERE ID_Usuario = @id
             `);
 
-        // Generar token
-        const token = generarToken(usuario);
+        const permisosModulos = await cargarPermisosModulos(usuario.ID_Usuario, usuario.Nombre_Rol);
+        const token = generarToken(usuario, permisosModulos);
 
-        // Registrar login exitoso
-        await registrarAuditoria(pool, usuario.ID_Usuario, 'LOGIN', 'Usuarios', usuario.ID_Usuario, 'Login exitoso', null, null, ip, userAgent, 'EXITOSO');
-
-        await pool.close();
+        await registrarAuditoria(pool, usuario.ID_Usuario, 'LOGIN', 'Usuarios', usuario.ID_Usuario,
+            'Login exitoso', null, null, ip, userAgent, 'EXITOSO');
 
         return res.json({
             mensaje: 'Login exitoso',
             token,
+            primer_login: usuario.Primer_Login === true || usuario.Primer_Login === 1,
             usuario: {
-                id: usuario.ID_Usuario,
-                email: usuario.Email,
-                nombre: usuario.Nombre,
-                rol: usuario.Nombre_Rol
+                id:      usuario.ID_Usuario,
+                email:   usuario.Email,
+                nombre:  usuario.Nombre,
+                apellido: usuario.Apellido,
+                rol:     usuario.Nombre_Rol,
+                modulos: permisosModulos
             }
         });
 
     } catch (err) {
         console.error('Error en login:', err.message);
-        res.status(500).json({ error: 'Error en el servidor' });
+        return res.status(500).json({ error: 'Error en el servidor' });
     }
 });
 
-// --- LOGOUT ---
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/logout
+// ─────────────────────────────────────────────────────────────────────────────
 router.post('/logout', verificarToken, async (req, res) => {
+    try {
+        const pool = await getPool();
+        await registrarAuditoria(pool, req.usuario.id, 'LOGOUT', 'Usuarios', req.usuario.id,
+            'Logout exitoso', null, null, obtenerIP(req), req.headers['user-agent'], 'EXITOSO');
+        return res.json({ mensaje: 'Sesión cerrada exitosamente' });
+    } catch (err) {
+        return res.status(500).json({ error: 'Error en el servidor' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/cambiar-contraseña (cambio normal autenticado)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/cambiar-contraseña', verificarToken, async (req, res) => {
+    const { contraseñaActual, contraseñaNueva } = req.body;
     const ip = obtenerIP(req);
-    const userAgent = req.headers['user-agent'];
+
+    if (!contraseñaActual || !contraseñaNueva) {
+        return res.status(400).json({ error: 'Contraseña actual y nueva son requeridas' });
+    }
+
+    if (contraseñaNueva.length < 8) {
+        return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    }
 
     try {
-        let pool = await sql.connect(req.app.locals.dbConfig);
-        await registrarAuditoria(pool, req.usuario.id, 'LOGOUT', 'Usuarios', req.usuario.id, 'Logout exitoso', null, null, ip, userAgent, 'EXITOSO');
-        await pool.close();
+        const pool = await getPool();
+        const result = await pool.request()
+            .input('id', sql.Int, req.usuario.id)
+            .query('SELECT Contraseña_Hash FROM [hubspot].[Usuarios] WHERE ID_Usuario = @id');
 
-        return res.json({ mensaje: 'Logout exitoso' });
+        const usuario = result.recordset[0];
+        if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+        const valida = await bcrypt.compare(contraseñaActual, usuario.Contraseña_Hash);
+        if (!valida) {
+            await registrarAuditoria(pool, req.usuario.id, 'CAMBIO_CONTRASEÑA', 'Usuarios', req.usuario.id,
+                'Contraseña actual incorrecta', null, null, ip, req.headers['user-agent'], 'ERROR');
+            return res.status(401).json({ error: 'Contraseña actual incorrecta' });
+        }
+
+        const nuevoHash = await bcrypt.hash(contraseñaNueva, 12);
+        await pool.request()
+            .input('id',   sql.Int,      req.usuario.id)
+            .input('hash', sql.NVarChar, nuevoHash)
+            .query(`
+                UPDATE [hubspot].[Usuarios]
+                SET Contraseña_Hash = @hash, Primer_Login = 0, Fecha_Actualizacion = GETDATE()
+                WHERE ID_Usuario = @id
+            `);
+
+        await registrarAuditoria(pool, req.usuario.id, 'CAMBIO_CONTRASEÑA', 'Usuarios', req.usuario.id,
+            'Contraseña cambiada exitosamente', null, null, ip, req.headers['user-agent'], 'EXITOSO');
+
+        return res.json({ mensaje: 'Contraseña actualizada exitosamente' });
     } catch (err) {
-        console.error('Error en logout:', err.message);
-        res.status(500).json({ error: 'Error en el servidor' });
+        console.error('Error al cambiar contraseña:', err.message);
+        return res.status(500).json({ error: 'Error en el servidor' });
     }
 });
 
-// --- CREAR USUARIO (Solo Admin) ---
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/olvidé-contraseña (solicitar recuperación)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/olvide-contraseña', async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email requerido' });
+
+    try {
+        const pool = await getPool();
+        const result = await pool.request()
+            .input('email', sql.NVarChar, email.trim().toLowerCase())
+            .query(`
+                SELECT ID_Usuario, Nombre, Email, Activo 
+                FROM [hubspot].[Usuarios] 
+                WHERE LOWER(Email) = @email AND Activo = 1
+            `);
+
+        // Siempre responder "éxito" para no revelar si el email existe
+        if (result.recordset.length === 0) {
+            return res.json({ mensaje: 'Si el correo existe, recibirás un enlace de recuperación.' });
+        }
+
+        const usuario = result.recordset[0];
+        const token   = uuidv4();
+        const expira  = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+        // Invalidar tokens anteriores
+        await pool.request()
+            .input('id', sql.Int, usuario.ID_Usuario)
+            .query(`UPDATE [hubspot].[TokensRecuperacion] SET Usado = 1 WHERE ID_Usuario = @id AND Usado = 0`);
+
+        // Guardar nuevo token
+        await pool.request()
+            .input('id_usuario', sql.Int,      usuario.ID_Usuario)
+            .input('token',      sql.NVarChar, token)
+            .input('expira',     sql.DateTime, expira)
+            .query(`
+                INSERT INTO [hubspot].[TokensRecuperacion] (ID_Usuario, Token, FechaExpira)
+                VALUES (@id_usuario, @token, @expira)
+            `);
+
+        // Enviar correo (no bloquear respuesta)
+        enviarCorreoRecuperacion(usuario.Email, usuario.Nombre, token)
+            .catch(err => console.error('Error enviando correo recuperación:', err.message));
+
+        return res.json({ mensaje: 'Si el correo existe, recibirás un enlace de recuperación.' });
+    } catch (err) {
+        console.error('Error en recuperación:', err.message);
+        return res.status(500).json({ error: 'Error en el servidor' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/reset-contraseña (usar token de recuperación)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/reset-contraseña', async (req, res) => {
+    const { token, contraseñaNueva } = req.body;
+
+    if (!token || !contraseñaNueva) {
+        return res.status(400).json({ error: 'Token y nueva contraseña requeridos' });
+    }
+
+    if (contraseñaNueva.length < 8) {
+        return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    }
+
+    try {
+        const pool = await getPool();
+        const result = await pool.request()
+            .input('token', sql.NVarChar, token)
+            .query(`
+                SELECT t.ID, t.ID_Usuario, t.FechaExpira, t.Usado
+                FROM [hubspot].[TokensRecuperacion] t
+                WHERE t.Token = @token
+            `);
+
+        const rec = result.recordset[0];
+
+        if (!rec)           return res.status(400).json({ error: 'Token inválido o expirado' });
+        if (rec.Usado)      return res.status(400).json({ error: 'Este enlace ya fue utilizado' });
+        if (new Date() > new Date(rec.FechaExpira))
+                            return res.status(400).json({ error: 'El enlace ha expirado. Solicita uno nuevo.' });
+
+        const nuevoHash = await bcrypt.hash(contraseñaNueva, 12);
+
+        await pool.request()
+            .input('id',   sql.Int,      rec.ID_Usuario)
+            .input('hash', sql.NVarChar, nuevoHash)
+            .query(`
+                UPDATE [hubspot].[Usuarios]
+                SET Contraseña_Hash = @hash, Primer_Login = 0, 
+                    Intentos_Fallidos = 0, Bloqueado = 0, Fecha_Actualizacion = GETDATE()
+                WHERE ID_Usuario = @id
+            `);
+
+        // Marcar token como usado
+        await pool.request()
+            .input('id', sql.Int, rec.ID)
+            .query(`UPDATE [hubspot].[TokensRecuperacion] SET Usado = 1 WHERE ID = @id`);
+
+        await registrarAuditoria(pool, rec.ID_Usuario, 'RESET_CONTRASEÑA', 'Usuarios', rec.ID_Usuario,
+            'Contraseña restablecida via token de recuperación', null, null, 'recovery', 'recovery', 'EXITOSO');
+
+        return res.json({ mensaje: 'Contraseña restablecida exitosamente. Ya puedes iniciar sesión.' });
+    } catch (err) {
+        console.error('Error en reset contraseña:', err.message);
+        return res.status(500).json({ error: 'Error en el servidor' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/crear-usuario (Admin)
+// ─────────────────────────────────────────────────────────────────────────────
 router.post('/crear-usuario', verificarToken, esAdmin, async (req, res) => {
     const { email, nombre, apellido, rol } = req.body;
     const ip = obtenerIP(req);
-    const userAgent = req.headers['user-agent'];
 
     if (!email || !nombre || !rol) {
-        return res.status(400).json({ error: 'Faltan campos requeridos' });
+        return res.status(400).json({ error: 'Email, nombre y rol son requeridos' });
     }
 
     try {
-        let pool = await sql.connect(req.app.locals.dbConfig);
+        const pool = await getPool();
 
-        // Verificar que el rol exista
-        let rolResult = await pool.request()
+        const rolResult = await pool.request()
             .input('nombre_rol', sql.NVarChar, rol)
             .query('SELECT ID_Rol FROM [hubspot].[Roles] WHERE Nombre_Rol = @nombre_rol');
 
         if (rolResult.recordset.length === 0) {
-            await pool.close();
             return res.status(400).json({ error: 'Rol no válido' });
         }
 
         const idRol = rolResult.recordset[0].ID_Rol;
 
-        // Generar contraseña temporal
-        const contraseñaTemporal = Math.random().toString(36).slice(-8) + 'Aa1!';
-        const hashContraseña = await bcrypt.hash(contraseñaTemporal, 10);
+        // Generar contraseña temporal segura
+        const chars   = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$';
+        let contraseñaTemporal = '';
+        for (let i = 0; i < 10; i++) {
+            contraseñaTemporal += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        contraseñaTemporal += 'Aa1!'; // Garantizar complejidad
 
-        // Crear usuario
-        let insertResult = await pool.request()
-            .input('email', sql.NVarChar, email)
-            .input('nombre', sql.NVarChar, nombre)
-            .input('apellido', sql.NVarChar, apellido)
-            .input('hash', sql.NVarChar, hashContraseña)
-            .input('id_rol', sql.Int, idRol)
+        const hashContraseña = await bcrypt.hash(contraseñaTemporal, 12);
+
+        const insertResult = await pool.request()
+            .input('email',    sql.NVarChar, email.trim().toLowerCase())
+            .input('nombre',   sql.NVarChar, nombre.trim())
+            .input('apellido', sql.NVarChar, apellido ? apellido.trim() : '')
+            .input('hash',     sql.NVarChar, hashContraseña)
+            .input('id_rol',   sql.Int,      idRol)
             .query(`
-                INSERT INTO [hubspot].[Usuarios] (Email, Nombre, Apellido, Contraseña_Hash, ID_Rol, Activo)
+                INSERT INTO [hubspot].[Usuarios] (Email, Nombre, Apellido, Contraseña_Hash, ID_Rol, Activo, Primer_Login)
                 OUTPUT INSERTED.ID_Usuario
-                VALUES (@email, @nombre, @apellido, @hash, @id_rol, 1)
+                VALUES (@email, @nombre, @apellido, @hash, @id_rol, 1, 1)
             `);
 
         const idUsuario = insertResult.recordset[0].ID_Usuario;
 
-        // Registrar en auditoría
-        await registrarAuditoria(pool, req.usuario.id, 'CREAR_USUARIO', 'Usuarios', idUsuario, `Usuario creado: ${email}`, null, { email, nombre, apellido, rol }, ip, userAgent, 'EXITOSO');
+        // Asignar permisos básicos de visualización a todos los módulos no-admin
+        await pool.request()
+            .input('id_usuario', sql.Int, idUsuario)
+            .query(`
+                INSERT INTO [hubspot].[PermisosUsuarioModulo] (ID_Usuario, Modulo, Puede_Ver, Puede_Crear, Puede_Editar, Puede_Eliminar)
+                SELECT @id_usuario, Clave, 1, 0, 0, 0
+                FROM [hubspot].[Modulos]
+                WHERE Solo_Admin = 0
+            `);
 
-        await pool.close();
+        await registrarAuditoria(pool, req.usuario.id, 'CREAR_USUARIO', 'Usuarios', idUsuario,
+            `Usuario creado: ${email}`, null, { email, nombre, apellido, rol }, ip, req.headers['user-agent'], 'EXITOSO');
+
+        // Enviar correo de bienvenida (no bloquear respuesta)
+        enviarCorreoBienvenida(email, nombre, email, contraseñaTemporal)
+            .catch(err => console.error('Error enviando correo bienvenida:', err.message));
 
         return res.status(201).json({
-            mensaje: 'Usuario creado exitosamente',
-            usuario: {
-                id: idUsuario,
-                email,
-                nombre,
-                apellido,
-                rol,
-                contraseñaTemporal
-            }
+            mensaje: 'Usuario creado exitosamente. Se envió un correo con las credenciales.',
+            usuario: { id: idUsuario, email, nombre, apellido, rol, contraseñaTemporal }
         });
 
     } catch (err) {
         console.error('Error al crear usuario:', err.message);
-        if (err.message.includes('Violation of UNIQUE')) {
-            return res.status(400).json({ error: 'El email ya está registrado' });
+        if (err.message.includes('UNIQUE') || err.message.includes('unique') || err.number === 2627) {
+            return res.status(400).json({ error: 'El email ya está registrado en el sistema' });
         }
-        res.status(500).json({ error: 'Error en el servidor' });
+        return res.status(500).json({ error: 'Error en el servidor' });
     }
 });
 
-// --- LISTAR USUARIOS (Solo Admin) ---
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/auth/usuarios (Admin)
+// ─────────────────────────────────────────────────────────────────────────────
 router.get('/usuarios', verificarToken, esAdmin, async (req, res) => {
     try {
-        let pool = await sql.connect(req.app.locals.dbConfig);
-
-        let result = await pool.request().query(`
+        const pool = await getPool();
+        const result = await pool.request().query(`
             SELECT u.ID_Usuario, u.Email, u.Nombre, u.Apellido, u.Activo, u.Bloqueado, 
-                   u.Ultimo_Login, u.Fecha_Creacion, r.Nombre_Rol
+                   u.Primer_Login, u.Ultimo_Login, u.Fecha_Creacion, u.Intentos_Fallidos,
+                   r.Nombre_Rol
             FROM [hubspot].[Usuarios] u
             JOIN [hubspot].[Roles] r ON u.ID_Rol = r.ID_Rol
             ORDER BY u.Fecha_Creacion DESC
         `);
-
-        await pool.close();
         return res.json(result.recordset);
-
     } catch (err) {
-        console.error('Error al listar usuarios:', err.message);
-        res.status(500).json({ error: 'Error en el servidor' });
+        console.error('Error listando usuarios:', err.message);
+        return res.status(500).json({ error: 'Error en el servidor' });
     }
 });
 
-// --- EDITAR USUARIO (Solo Admin) ---
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/auth/usuarios/:id (Admin)
+// ─────────────────────────────────────────────────────────────────────────────
 router.put('/usuarios/:id', verificarToken, esAdmin, async (req, res) => {
     const { id } = req.params;
     const { nombre, apellido, rol, activo, bloqueado } = req.body;
     const ip = obtenerIP(req);
-    const userAgent = req.headers['user-agent'];
 
     try {
-        let pool = await sql.connect(req.app.locals.dbConfig);
+        const pool = await getPool();
 
-        // Obtener datos actuales
-        let usuarioActual = await pool.request()
+        const usuarioActual = await pool.request()
             .input('id', sql.Int, id)
             .query(`
                 SELECT u.ID_Usuario, u.Nombre, u.Apellido, u.Activo, u.Bloqueado, r.Nombre_Rol
@@ -243,86 +417,60 @@ router.put('/usuarios/:id', verificarToken, esAdmin, async (req, res) => {
             `);
 
         if (usuarioActual.recordset.length === 0) {
-            await pool.close();
             return res.status(404).json({ error: 'Usuario no encontrado' });
         }
 
-        const valoresAnteriores = usuarioActual.recordset[0];
+        const anterior = usuarioActual.recordset[0];
 
-        // Actualizar usuario
-        await pool.request()
-            .input('id', sql.Int, id)
-            .input('nombre', sql.NVarChar, nombre || valoresAnteriores.Nombre)
-            .input('apellido', sql.NVarChar, apellido || valoresAnteriores.Apellido)
-            .input('activo', sql.Bit, activo !== undefined ? activo : valoresAnteriores.Activo)
-            .input('bloqueado', sql.Bit, bloqueado !== undefined ? bloqueado : valoresAnteriores.Bloqueado)
-            .query(`
-                UPDATE [hubspot].[Usuarios]
-                SET Nombre = @nombre, Apellido = @apellido, Activo = @activo, Bloqueado = @bloqueado
-                WHERE ID_Usuario = @id
-            `);
+        // Si se cambia el rol, obtener ID del nuevo rol
+        let idRolNuevo = null;
+        if (rol && rol !== anterior.Nombre_Rol) {
+            const rolResult = await pool.request()
+                .input('rol', sql.NVarChar, rol)
+                .query('SELECT ID_Rol FROM [hubspot].[Roles] WHERE Nombre_Rol = @rol');
+            if (rolResult.recordset.length > 0) {
+                idRolNuevo = rolResult.recordset[0].ID_Rol;
+            }
+        }
 
-        // Registrar auditoría
-        await registrarAuditoria(pool, req.usuario.id, 'EDITAR_USUARIO', 'Usuarios', id, `Usuario editado: ${valoresAnteriores.Nombre}`, valoresAnteriores, { nombre, apellido, rol, activo, bloqueado }, ip, userAgent, 'EXITOSO');
+        const query = idRolNuevo
+            ? `UPDATE [hubspot].[Usuarios] SET Nombre=@nombre, Apellido=@apellido, Activo=@activo, Bloqueado=@bloqueado, ID_Rol=@id_rol, Fecha_Actualizacion=GETDATE() WHERE ID_Usuario=@id`
+            : `UPDATE [hubspot].[Usuarios] SET Nombre=@nombre, Apellido=@apellido, Activo=@activo, Bloqueado=@bloqueado, Fecha_Actualizacion=GETDATE() WHERE ID_Usuario=@id`;
 
-        await pool.close();
+        const req2 = pool.request()
+            .input('id',       sql.Int,      id)
+            .input('nombre',   sql.NVarChar, nombre   !== undefined ? nombre   : anterior.Nombre)
+            .input('apellido', sql.NVarChar, apellido !== undefined ? apellido : anterior.Apellido)
+            .input('activo',   sql.Bit,      activo   !== undefined ? activo   : anterior.Activo)
+            .input('bloqueado', sql.Bit,     bloqueado !== undefined ? bloqueado : anterior.Bloqueado);
 
-        return res.json({ mensaje: 'Usuario actualizado' });
+        if (idRolNuevo) req2.input('id_rol', sql.Int, idRolNuevo);
 
+        await req2.query(query);
+
+        await registrarAuditoria(pool, req.usuario.id, 'EDITAR_USUARIO', 'Usuarios', id,
+            `Usuario editado: ${anterior.Nombre}`, anterior, { nombre, apellido, rol, activo, bloqueado },
+            ip, req.headers['user-agent'], 'EXITOSO');
+
+        return res.json({ mensaje: 'Usuario actualizado exitosamente' });
     } catch (err) {
         console.error('Error al actualizar usuario:', err.message);
-        res.status(500).json({ error: 'Error en el servidor' });
+        return res.status(500).json({ error: 'Error en el servidor' });
     }
 });
 
-// --- CAMBIAR CONTRASEÑA ---
-router.post('/cambiar-contraseña', verificarToken, async (req, res) => {
-    const { contraseñaActual, contraseñaNueva } = req.body;
-    const ip = obtenerIP(req);
-    const userAgent = req.headers['user-agent'];
-
-    if (!contraseñaActual || !contraseñaNueva) {
-        return res.status(400).json({ error: 'Contraseña actual y nueva requeridas' });
-    }
-
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/auth/roles
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/roles', verificarToken, esAdmin, async (req, res) => {
     try {
-        let pool = await sql.connect(req.app.locals.dbConfig);
-
-        // Obtener usuario
-        let result = await pool.request()
-            .input('id', sql.Int, req.usuario.id)
-            .query('SELECT Contraseña_Hash FROM [hubspot].[Usuarios] WHERE ID_Usuario = @id');
-
-        const usuario = result.recordset[0];
-
-        // Verificar contraseña actual
-        const contraseñaValida = await bcrypt.compare(contraseñaActual, usuario.Contraseña_Hash);
-
-        if (!contraseñaValida) {
-            await registrarAuditoria(pool, req.usuario.id, 'CAMBIO_CONTRASEÑA', 'Usuarios', req.usuario.id, 'Intento de cambio con contraseña incorrecta', null, null, ip, userAgent, 'ERROR');
-            await pool.close();
-            return res.status(401).json({ error: 'Contraseña actual incorrecta' });
-        }
-
-        // Hashear nueva contraseña
-        const nuevoHash = await bcrypt.hash(contraseñaNueva, 10);
-
-        // Actualizar
-        await pool.request()
-            .input('id', sql.Int, req.usuario.id)
-            .input('hash', sql.NVarChar, nuevoHash)
-            .query('UPDATE [hubspot].[Usuarios] SET Contraseña_Hash = @hash WHERE ID_Usuario = @id');
-
-        // Registrar
-        await registrarAuditoria(pool, req.usuario.id, 'CAMBIO_CONTRASEÑA', 'Usuarios', req.usuario.id, 'Contraseña cambiada exitosamente', null, null, ip, userAgent, 'EXITOSO');
-
-        await pool.close();
-
-        return res.json({ mensaje: 'Contraseña actualizada' });
-
+        const pool = await getPool();
+        const result = await pool.request().query(
+            'SELECT ID_Rol, Nombre_Rol, Descripcion FROM [hubspot].[Roles] ORDER BY ID_Rol'
+        );
+        return res.json(result.recordset);
     } catch (err) {
-        console.error('Error al cambiar contraseña:', err.message);
-        res.status(500).json({ error: 'Error en el servidor' });
+        return res.status(500).json({ error: 'Error obteniendo roles' });
     }
 });
 
