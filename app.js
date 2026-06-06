@@ -108,6 +108,7 @@ const VIEWS = {
     eventos:               { title: 'Gestión de Eventos',     subtitle: 'Administración de eventos y festivos', load: loadEventos },
     'marketing-inversion': { title: 'Inversión Publicitaria', subtitle: 'Marketing › Inversión',              load: loadInversion },
     'marketing-metas':     { title: 'Metas de Marketing',    subtitle: 'Marketing › Metas',                  load: loadMetas },
+    'operaciones-metas':   { title: 'Metas Asesor',          subtitle: 'Operaciones › Metas Asesor',         load: loadMetasAsesor },
     'admin-usuarios':      { title: 'Gestión de Usuarios',   subtitle: 'Administración › Usuarios',          load: loadAdminUsuarios },
     'admin-configuracion': { title: 'Configuración',          subtitle: 'Administración › Configuración',    load: loadAdminConfig }
 };
@@ -489,6 +490,15 @@ async function eliminarEvento(id, desc) {
 /* ═══════════════════════════════════════════════════════════
    MARKETING — INVERSIÓN
 ═══════════════════════════════════════════════════════════ */
+function formatPeriodo(periodoStr) {
+    if (!periodoStr) return '—';
+    try {
+        const d = new Date(periodoStr);
+        const utcDate = new Date(d.getTime() + d.getTimezoneOffset() * 60000);
+        return utcDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase());
+    } catch(e) { return periodoStr; }
+}
+
 let inversionData = [];
 
 async function loadInversion(container) {
@@ -499,7 +509,7 @@ async function loadInversion(container) {
     container.innerHTML = `
     <div class="toolbar">
         <div class="filters-row">
-            <input type="text" id="fInvPeriodo" class="form-control filter-input" placeholder="🔍 Período (ej: 2025-01)">
+            <input type="month" id="fInvPeriodo" class="form-control filter-input">
             <select id="fInvPipeline" class="form-control filter-input"><option value="">Todos los países</option></select>
             <button class="btn btn-secondary" onclick="cargarInversiones()"><i class="fa-solid fa-rotate-right"></i> Actualizar</button>
         </div>
@@ -508,8 +518,8 @@ async function loadInversion(container) {
     <div class="card">
         <div class="table-wrapper">
             <table>
-                <thead><tr><th>Período</th><th>País</th><th>Inversión</th><th>Fecha Carga</th><th>Acciones</th></tr></thead>
-                <tbody id="tbodyInversion"><tr><td colspan="5"><div class="empty-state"><div class="spinner"></div></div></td></tr></tbody>
+                <thead><tr><th>Período</th><th>País</th><th>Inversión</th><th>Acciones</th></tr></thead>
+                <tbody id="tbodyInversion"><tr><td colspan="4"><div class="empty-state"><div class="spinner"></div></div></td></tr></tbody>
             </table>
         </div>
     </div>`;
@@ -545,7 +555,7 @@ async function cargarInversiones() {
         if (!tbody) return;
 
         if (!inversionData.length) {
-            tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">💰</div><div class="empty-state-title">Sin inversiones registradas</div></div></td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><div class="empty-state-icon">💰</div><div class="empty-state-title">Sin inversiones registradas</div></div></td></tr>`;
             return;
         }
 
@@ -554,10 +564,9 @@ async function cargarInversiones() {
 
         tbody.innerHTML = inversionData.map(i => `
         <tr>
-            <td><span class="badge badge-info">${escapeHtml(i.ID_Periodo)}</span></td>
+            <td><span class="badge badge-info">${formatPeriodo(i.ID_Periodo)}</span></td>
             <td>${escapeHtml(i.Des_pipeline || 'N/A')}</td>
             <td><strong>$${Number(i.Amount_Spend).toLocaleString('es', {minimumFractionDigits:2,maximumFractionDigits:2})}</strong></td>
-            <td class="text-muted fs-12">${formatFechaHora(i.FechaCarga)}</td>
             <td>
                 <div class="flex gap-2">
                     ${puedeEditar ? `<button class="btn btn-sm btn-secondary" onclick="abrirModalInversion(${i.ID_Inversion})"><i class="fa-solid fa-pen"></i></button>` : ''}
@@ -582,7 +591,7 @@ async function abrirModalInversion(id) {
     } catch(e) {}
 
     const body = `
-        <div class="form-group"><label class="form-label">Período *</label><input type="text" id="invPeriodo" class="form-control" value="${escapeHtml(inv?.ID_Periodo||'')}" placeholder="Ej: 2025-01"></div>
+        <div class="form-group"><label class="form-label">Período *</label><input type="month" id="invPeriodo" class="form-control" value="${inv?.ID_Periodo ? inv.ID_Periodo.substring(0,7) : ''}"></div>
         <div class="form-group"><label class="form-label">País / Pipeline *</label><select id="invPipeline" class="form-control">${pipeOptions}</select></div>
         <div class="form-group"><label class="form-label">Inversión (USD) *</label><input type="number" id="invAmount" class="form-control" value="${inv?.Amount_Spend||''}" placeholder="0.00" step="0.01" min="0"></div>`;
 
@@ -594,11 +603,12 @@ async function abrirModalInversion(id) {
 }
 
 async function guardarInversion(id) {
-    const periodo   = document.getElementById('invPeriodo')?.value?.trim();
+    let periodo     = document.getElementById('invPeriodo')?.value?.trim();
     const pipeline  = document.getElementById('invPipeline')?.value;
     const amount    = document.getElementById('invAmount')?.value;
 
     if (!periodo || !pipeline || !amount) { showToast('Completa todos los campos', 'warning'); return; }
+    periodo += '-01'; // Guardar como dia 1 del mes
 
     try {
         const method = id ? 'PUT' : 'POST';
@@ -631,7 +641,7 @@ async function loadMetas(container) {
     container.innerHTML = `
     <div class="toolbar">
         <div class="filters-row">
-            <input type="text" id="fMetPeriodo" class="form-control filter-input" placeholder="🔍 Período">
+            <input type="month" id="fMetPeriodo" class="form-control filter-input">
             <select id="fMetPais"  class="form-control filter-input"><option value="">Todos los países</option></select>
             <select id="fMetTipo"  class="form-control filter-input"><option value="">Todos los tipos</option></select>
             <button class="btn btn-secondary" onclick="cargarMetas()"><i class="fa-solid fa-rotate-right"></i> Actualizar</button>
@@ -691,7 +701,7 @@ async function cargarMetas() {
 
         tbody.innerHTML = metasData.map(m => `
         <tr>
-            <td><span class="badge badge-info">${escapeHtml(m.ID_Periodo)}</span></td>
+            <td><span class="badge badge-info">${formatPeriodo(m.ID_Periodo)}</span></td>
             <td>${escapeHtml(m.Pais)}</td>
             <td><span class="badge badge-neutral">${escapeHtml(m.TipoLeads)}</span></td>
             <td><strong>${Number(m.Leads||0).toLocaleString()}</strong></td>
@@ -709,13 +719,26 @@ async function cargarMetas() {
     }
 }
 
-function abrirModalMeta(id) {
+async function abrirModalMeta(id) {
     const m = id ? metasData.find(x => x.ID_Meta === id) : null;
+    
+    let pipeOptions = '<option value="">-- Selecciona --</option>';
+    let tipoOptions = '<option value="">-- Selecciona --</option>';
+    try {
+        const respPipe = await fetchAutenticado(`${API}/api/eventos/pipelines`);
+        const pipes = await respPipe.json();
+        pipeOptions += pipes.map(p => `<option value="${escapeHtml(p.Des_pipeline)}" ${m && m.Pais === p.Des_pipeline ? 'selected':''}>${escapeHtml(p.Des_pipeline)}</option>`).join('');
+
+        const respCat = await fetchAutenticado(`${API}/api/marketing/metas/catalogos`);
+        const cat = await respCat.json();
+        tipoOptions += cat.tipos?.map(t => `<option value="${escapeHtml(t)}" ${m && m.TipoLeads === t ? 'selected':''}>${escapeHtml(t)}</option>`).join('');
+    } catch(e) {}
+
     const body = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-            <div class="form-group"><label class="form-label">Período *</label><input type="text" id="mPeriodo" class="form-control" value="${escapeHtml(m?.ID_Periodo||'')}" placeholder="2025-01"></div>
-            <div class="form-group"><label class="form-label">País *</label><input type="text" id="mPais" class="form-control" value="${escapeHtml(m?.Pais||'')}" placeholder="Perú"></div>
-            <div class="form-group"><label class="form-label">Tipo de Leads *</label><input type="text" id="mTipo" class="form-control" value="${escapeHtml(m?.TipoLeads||'')}" placeholder="Orgánico"></div>
+            <div class="form-group"><label class="form-label">Período *</label><input type="month" id="mPeriodo" class="form-control" value="${m?.ID_Periodo ? m.ID_Periodo.substring(0,7) : ''}"></div>
+            <div class="form-group"><label class="form-label">País *</label><select id="mPais" class="form-control">${pipeOptions}</select></div>
+            <div class="form-group"><label class="form-label">Tipo de Leads *</label><select id="mTipo" class="form-control">${tipoOptions}</select></div>
             <div class="form-group"><label class="form-label">Leads</label><input type="number" id="mLeads" class="form-control" value="${m?.Leads||0}" min="0"></div>
             <div class="form-group"><label class="form-label">Ratio Conversión (0-1)</label><input type="number" id="mRatio" class="form-control" value="${m?.Ratio_conversion||0}" step="0.0001" min="0" max="1"></div>
             <div class="form-group"><label class="form-label">Matrículas</label><input type="number" id="mMatriculas" class="form-control" value="${m?.Matriculas||0}" min="0"></div>
@@ -727,8 +750,11 @@ function abrirModalMeta(id) {
 }
 
 async function guardarMeta(id) {
+    let id_periodo = document.getElementById('mPeriodo')?.value?.trim();
+    if(id_periodo) id_periodo += '-01';
+    
     const payload = {
-        id_periodo:      document.getElementById('mPeriodo')?.value?.trim(),
+        id_periodo,
         pais:            document.getElementById('mPais')?.value?.trim(),
         tipo_leads:      document.getElementById('mTipo')?.value?.trim(),
         leads:           document.getElementById('mLeads')?.value,
@@ -1081,6 +1107,185 @@ async function probarSMTP() {
             if (statusEl) { statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> ${data.error}`; statusEl.style.color = 'var(--danger)'; }
             showToast('Error en conexión SMTP', 'error');
         }
+    } catch(err) { showToast('Error de conexión', 'error'); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   OPERACIONES — METAS ASESOR
+═══════════════════════════════════════════════════════════ */
+let metasAsesorData = [];
+
+async function loadMetasAsesor(container) {
+    const puedeCrear = tienePermiso('operaciones_metas', 'crear');
+
+    container.innerHTML = `
+    <div class="toolbar">
+        <div class="filters-row">
+            <input type="month" id="fMetAsPeriodo" class="form-control filter-input">
+            <select id="fMetAsPipeline" class="form-control filter-input"><option value="">Todos los países</option></select>
+            <select id="fMetAsOwner" class="form-control filter-input"><option value="">Todos los asesores</option></select>
+            <button class="btn btn-secondary" onclick="cargarMetasAsesor()"><i class="fa-solid fa-rotate-right"></i> Actualizar</button>
+        </div>
+        ${puedeCrear ? `<button class="btn btn-primary" onclick="abrirModalMetaAsesor(null)"><i class="fa-solid fa-plus"></i> Nueva Meta Asesor</button>` : ''}
+    </div>
+    <div class="card">
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>Período</th><th>País</th><th>Asesor</th><th>Moneda</th><th>Recaudo</th><th>Ventas</th><th>Tier</th><th>Acciones</th></tr></thead>
+                <tbody id="tbodyMetasAsesor"><tr><td colspan="8"><div class="empty-state"><div class="spinner"></div></div></td></tr></tbody>
+            </table>
+        </div>
+    </div>`;
+
+    // Catálogos
+    try {
+        const respPipe = await fetchAutenticado(`${API}/api/eventos/pipelines`);
+        const pipes = await respPipe.json();
+        const selPipe = document.getElementById('fMetAsPipeline');
+        pipes.forEach(p => selPipe.innerHTML += `<option value="${p.ID_pipeline}">${escapeHtml(p.Des_pipeline)}</option>`);
+
+        const respOw = await fetchAutenticado(`${API}/api/metas-asesor/owners`);
+        const owners = await respOw.json();
+        const selOw = document.getElementById('fMetAsOwner');
+        owners.forEach(o => selOw.innerHTML += `<option value="${escapeHtml(o.OwnerName)}">${escapeHtml(o.OwnerName)}</option>`);
+    } catch(e) {}
+
+    ['fMetAsPeriodo','fMetAsPipeline','fMetAsOwner'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', cargarMetasAsesor);
+        document.getElementById(id)?.addEventListener('change', cargarMetasAsesor);
+    });
+
+    await cargarMetasAsesor();
+}
+
+async function cargarMetasAsesor() {
+    const periodo  = document.getElementById('fMetAsPeriodo')?.value || '';
+    const pipeline = document.getElementById('fMetAsPipeline')?.value || '';
+    const asesor   = document.getElementById('fMetAsOwner')?.value || '';
+
+    let url = `${API}/api/metas-asesor?1=1`;
+    if (periodo)  url += `&periodo=${encodeURIComponent(periodo)}`;
+    if (pipeline) url += `&pipeline=${pipeline}`;
+    if (asesor)   url += `&asesor=${encodeURIComponent(asesor)}`;
+
+    try {
+        const resp = await fetchAutenticado(url);
+        metasAsesorData = await resp.json();
+        const tbody = document.getElementById('tbodyMetasAsesor');
+        if (!tbody) return;
+
+        if (!metasAsesorData.length) {
+            tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-state-icon">🧑‍💼</div><div class="empty-state-title">Sin metas de asesor registradas</div></div></td></tr>`;
+            return;
+        }
+
+        const puedeEditar = tienePermiso('operaciones_metas', 'editar');
+        const puedeElim = tienePermiso('operaciones_metas', 'eliminar');
+
+        tbody.innerHTML = metasAsesorData.map(m => `
+        <tr>
+            <td><span class="badge badge-info">${formatPeriodo(m.ID_Periodo)}</span></td>
+            <td>${escapeHtml(m.Des_pipeline || m.Pais || 'N/A')}</td>
+            <td><strong>${escapeHtml(m.Asesor)}</strong><br><span class="text-muted fs-12">${escapeHtml(m.CORREO || '')}</span></td>
+            <td><span class="badge badge-neutral">${escapeHtml(m.Moneda || '')}</span></td>
+            <td>$${Number(m.Recaudo||0).toLocaleString('es', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+            <td>${Number(m.NumeroVentas||0).toLocaleString()}</td>
+            <td>${m.Tier || '—'}</td>
+            <td>
+                <div class="flex gap-2">
+                    ${puedeEditar ? `<button class="btn btn-sm btn-secondary" onclick="abrirModalMetaAsesor(${m.ID_MetaAsesor})"><i class="fa-solid fa-pen"></i></button>` : ''}
+                    ${puedeElim  ? `<button class="btn btn-sm btn-danger"    onclick="eliminarMetaAsesor(${m.ID_MetaAsesor})"><i class="fa-solid fa-trash"></i></button>` : ''}
+                </div>
+            </td>
+        </tr>`).join('');
+    } catch(err) {
+        document.getElementById('tbodyMetasAsesor').innerHTML = `<tr><td colspan="8" class="text-center text-danger">Error: ${err.message}</td></tr>`;
+    }
+}
+
+async function abrirModalMetaAsesor(id) {
+    const m = id ? metasAsesorData.find(x => x.ID_MetaAsesor === id) : null;
+    
+    let pipeOptions = '<option value="">-- Selecciona --</option>';
+    let ownerOptions = '<option value="">-- Selecciona --</option>';
+    let monedaOptions = '<option value="">-- Selecciona --</option>';
+    let ownersCache = [];
+
+    try {
+        const respPipe = await fetchAutenticado(`${API}/api/eventos/pipelines`);
+        const pipes = await respPipe.json();
+        pipeOptions += pipes.map(p => `<option value="${p.ID_pipeline}" ${m && m.ID_pipeline === p.ID_pipeline ? 'selected':''}>${escapeHtml(p.Des_pipeline)}</option>`).join('');
+
+        const respOw = await fetchAutenticado(`${API}/api/metas-asesor/owners`);
+        ownersCache = await respOw.json();
+        ownerOptions += ownersCache.map(o => `<option value="${escapeHtml(o.OwnerName)}" data-email="${escapeHtml(o.Email || '')}" ${m && m.Asesor === o.OwnerName ? 'selected':''}>${escapeHtml(o.OwnerName)}</option>`).join('');
+
+        const respDiv = await fetchAutenticado(`${API}/api/metas-asesor/divisas`);
+        const divisas = await respDiv.json();
+        monedaOptions += divisas.map(d => `<option value="${escapeHtml(d.Moneda)}" ${m && m.Moneda === d.Moneda ? 'selected':''}>${escapeHtml(d.Moneda)}</option>`).join('');
+    } catch(e) {}
+
+    const body = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div class="form-group"><label class="form-label">Período *</label><input type="month" id="maPeriodo" class="form-control" value="${m?.ID_Periodo ? String(m.ID_Periodo).substring(0,7) : ''}"></div>
+            <div class="form-group"><label class="form-label">País / Pipeline *</label><select id="maPipeline" class="form-control">${pipeOptions}</select></div>
+            <div class="form-group"><label class="form-label">Asesor *</label><select id="maOwner" class="form-control">${ownerOptions}</select></div>
+            <div class="form-group"><label class="form-label">Correo</label><input type="email" id="maCorreo" class="form-control" value="${escapeHtml(m?.CORREO || '')}" readonly style="background:var(--bg-subtle);"></div>
+            <div class="form-group"><label class="form-label">Moneda *</label><select id="maMoneda" class="form-control">${monedaOptions}</select></div>
+            <div class="form-group"><label class="form-label">Recaudo</label><input type="number" id="maRecaudo" class="form-control" value="${m?.Recaudo||0}" step="0.01" min="0"></div>
+            <div class="form-group"><label class="form-label">Número de Ventas</label><input type="number" id="maVentas" class="form-control" value="${m?.NumeroVentas||0}" min="0"></div>
+            <div class="form-group"><label class="form-label">Tier</label><input type="number" id="maTier" class="form-control" value="${m?.Tier||0}" min="0"></div>
+        </div>`;
+
+    const footer = `
+        <button class="btn btn-secondary" onclick="cerrarModal('modalMetaAsesor')">Cancelar</button>
+        <button class="btn btn-primary"   onclick="guardarMetaAsesor(${id||'null'})"><i class="fa-solid fa-save"></i> ${id ? 'Actualizar':'Guardar'}</button>`;
+    crearModal('modalMetaAsesor', id ? '✏️ Editar Meta Asesor' : '🧑‍💼 Nueva Meta Asesor', body, footer, 'modal-lg');
+
+    // Auto-llenar correo al seleccionar asesor
+    document.getElementById('maOwner')?.addEventListener('change', function() {
+        const selected = this.options[this.selectedIndex];
+        const email = selected?.getAttribute('data-email') || '';
+        document.getElementById('maCorreo').value = email;
+    });
+}
+
+async function guardarMetaAsesor(id) {
+    let id_periodo = document.getElementById('maPeriodo')?.value?.trim();
+    if(id_periodo) id_periodo += '-01';
+    
+    const payload = {
+        id_periodo,
+        id_pipeline:    document.getElementById('maPipeline')?.value,
+        asesor:         document.getElementById('maOwner')?.value,
+        correo:         document.getElementById('maCorreo')?.value,
+        moneda:         document.getElementById('maMoneda')?.value,
+        recaudo:        document.getElementById('maRecaudo')?.value,
+        numero_ventas:  document.getElementById('maVentas')?.value,
+        tier:           document.getElementById('maTier')?.value
+    };
+
+    if (!payload.id_periodo || !payload.id_pipeline || !payload.asesor || !payload.moneda) {
+        showToast('Período, País, Asesor y Moneda son requeridos', 'warning'); return;
+    }
+
+    try {
+        const method = id ? 'PUT' : 'POST';
+        const url    = id ? `${API}/api/metas-asesor/${id}` : `${API}/api/metas-asesor`;
+        const resp   = await fetchAutenticado(url, { method, body: JSON.stringify(payload) });
+        const data   = await resp.json();
+        if (resp.ok) { cerrarModal('modalMetaAsesor'); showToast(data.mensaje, 'success'); cargarMetasAsesor(); }
+        else showToast(data.error || 'Error', 'error');
+    } catch(err) { showToast('Error de conexión', 'error'); }
+}
+
+async function eliminarMetaAsesor(id) {
+    if (!confirm('¿Eliminar esta meta?')) return;
+    try {
+        const resp = await fetchAutenticado(`${API}/api/metas-asesor/${id}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (resp.ok) { showToast(data.mensaje, 'success'); cargarMetasAsesor(); }
+        else showToast(data.error || 'Error', 'error');
     } catch(err) { showToast('Error de conexión', 'error'); }
 }
 

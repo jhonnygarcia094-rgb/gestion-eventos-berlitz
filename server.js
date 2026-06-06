@@ -97,6 +97,7 @@ const marketingRoutes     = require('./routes/marketing');
 const configuracionRoutes = require('./routes/configuracion');
 const permisosRoutes      = require('./routes/permisos');
 const dashboardRoutes     = require('./routes/dashboard');
+const metasAsesorRoutes   = require('./routes/metas-asesor');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MONTAR RUTAS
@@ -107,6 +108,7 @@ app.use('/api/marketing',     apiLimiter,  marketingRoutes);
 app.use('/api/configuracion', apiLimiter,  configuracionRoutes);
 app.use('/api/permisos',      apiLimiter,  permisosRoutes);
 app.use('/api/dashboard',     apiLimiter,  dashboardRoutes);
+app.use('/api/metas-asesor',  apiLimiter,  metasAsesorRoutes);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rutas de páginas HTML
