@@ -1,166 +1,171 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Berlitz — Sistema de Gestión</title>
     <meta name="description" content="Panel de control Berlitz: Gestión de eventos, marketing e inversiones">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
-<!-- ── Mobile sidebar overlay ── -->
-<div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <!-- ── Mobile sidebar overlay ── -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-<div class="app-layout">
+    <div class="app-layout">
 
-    <!-- ═══════════════════════════════════════════ SIDEBAR ═══ -->
-    <aside class="sidebar" id="sidebar">
-        <!-- Toggle -->
-        <div class="sidebar-toggle" id="sidebarToggle" title="Colapsar menú">
-            <i class="fa-solid fa-chevron-left" id="toggleIcon"></i>
+        <!-- ═══════════════════════════════════════════ SIDEBAR ═══ -->
+        <aside class="sidebar" id="sidebar">
+            <!-- Toggle -->
+            <div class="sidebar-toggle" id="sidebarToggle" title="Colapsar menú">
+                <i class="fa-solid fa-chevron-left" id="toggleIcon"></i>
+            </div>
+
+            <!-- Brand -->
+            <a class="sidebar-brand" href="#">
+                <div class="sidebar-brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+                <div class="sidebar-brand-text">
+                    <div class="sidebar-brand-name">Berlitz</div>
+                    <div class="sidebar-brand-sub">Sistema de Gestión</div>
+                </div>
+            </a>
+
+            <!-- Nav -->
+            <nav class="sidebar-nav" id="sidebarNav">
+
+                <!-- Dashboard -->
+                <ul class="nav-group">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-view="dashboard" id="nav-dashboard">
+                            <span class="nav-icon"><i class="fa-solid fa-gauge-high"></i></span>
+                            <span class="nav-label">Dashboard</span>
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Operaciones -->
+                <ul class="nav-group">
+                    <li class="nav-group-label">Operaciones</li>
+                    <li class="nav-item" id="navItem-eventos">
+                        <button class="nav-link" data-view="eventos" id="nav-eventos">
+                            <span class="nav-icon"><i class="fa-solid fa-calendar-days"></i></span>
+                            <span class="nav-label">Gestión de Eventos</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" id="navItem-operaciones-metas">
+                        <button class="nav-link" data-view="operaciones-metas" id="nav-operaciones-metas">
+                            <span class="nav-icon"><i class="fa-solid fa-user-tie"></i></span>
+                            <span class="nav-label">Metas Asesor</span>
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Marketing -->
+                <ul class="nav-group" id="navGroup-marketing">
+                    <li class="nav-group-label">Marketing</li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="nav-marketing-toggle">
+                            <span class="nav-icon"><i class="fa-solid fa-chart-line"></i></span>
+                            <span class="nav-label">Marketing</span>
+                            <i class="fa-solid fa-chevron-right nav-chevron" id="marketingChevron"></i>
+                        </button>
+                        <ul class="nav-submenu" id="marketingSubmenu">
+                            <li class="nav-item" id="navItem-mkt-inversion">
+                                <button class="nav-sublink" data-view="marketing-inversion"
+                                    id="nav-marketing-inversion">
+                                    <i class="fa-solid fa-coins"></i>
+                                    <span class="nav-label">Inversión Publicitaria</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" id="navItem-mkt-metas">
+                                <button class="nav-sublink" data-view="marketing-metas" id="nav-marketing-metas">
+                                    <i class="fa-solid fa-bullseye"></i>
+                                    <span class="nav-label">Metas de Marketing</span>
+                                </button>
+                            </li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <!-- Administración -->
+                <ul class="nav-group" id="navGroup-admin">
+                    <li class="nav-group-label">Administración</li>
+                    <li class="nav-item" id="navItem-usuarios">
+                        <button class="nav-link" data-view="admin-usuarios" id="nav-admin-usuarios">
+                            <span class="nav-icon"><i class="fa-solid fa-users"></i></span>
+                            <span class="nav-label">Gestión de Usuarios</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" id="navItem-config">
+                        <button class="nav-link" data-view="admin-configuracion" id="nav-admin-config">
+                            <span class="nav-icon"><i class="fa-solid fa-gear"></i></span>
+                            <span class="nav-label">Configuración</span>
+                        </button>
+                    </li>
+                </ul>
+
+            </nav>
+
+            <!-- User footer -->
+            <div class="sidebar-footer">
+                <div class="sidebar-user">
+                    <div class="sidebar-avatar" id="sidebarAvatar">U</div>
+                    <div class="sidebar-user-info">
+                        <div class="sidebar-user-name" id="sidebarUserName">Cargando...</div>
+                        <div class="sidebar-user-role" id="sidebarUserRole">—</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ═══════════════════════════════════════════ MAIN ═══ -->
+        <div class="main-content" id="mainContent">
+
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <button class="btn-mobile-menu" id="btnMobileMenu">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
+                    <div>
+                        <div class="topbar-title" id="topbarTitle">Dashboard</div>
+                        <div class="topbar-subtitle" id="topbarSubtitle">Panel general del sistema</div>
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <span style="font-size:12px;color:var(--text-muted);" id="topbarUser"></span>
+                    <button class="btn-topbar btn-logout-topbar" onclick="logout()">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                        <span class="d-none-sm">Salir</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Contenido de vistas -->
+            <main class="page-content" id="viewContainer">
+                <div style="display:flex;align-items:center;justify-content:center;height:400px;">
+                    <div style="text-align:center;">
+                        <div class="spinner" style="margin:0 auto 16px;width:40px;height:40px;"></div>
+                        <p style="color:var(--text-muted)">Cargando...</p>
+                    </div>
+                </div>
+            </main>
         </div>
 
-        <!-- Brand -->
-        <a class="sidebar-brand" href="#">
-            <div class="sidebar-brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
-            <div class="sidebar-brand-text">
-                <div class="sidebar-brand-name">Berlitz</div>
-                <div class="sidebar-brand-sub">Sistema de Gestión</div>
-            </div>
-        </a>
-
-        <!-- Nav -->
-        <nav class="sidebar-nav" id="sidebarNav">
-
-            <!-- Dashboard -->
-            <ul class="nav-group">
-                <li class="nav-item">
-                    <button class="nav-link active" data-view="dashboard" id="nav-dashboard">
-                        <span class="nav-icon"><i class="fa-solid fa-gauge-high"></i></span>
-                        <span class="nav-label">Dashboard</span>
-                    </button>
-                </li>
-            </ul>
-
-            <!-- Operaciones -->
-            <ul class="nav-group">
-                <li class="nav-group-label">Operaciones</li>
-                <li class="nav-item" id="navItem-eventos">
-                    <button class="nav-link" data-view="eventos" id="nav-eventos">
-                        <span class="nav-icon"><i class="fa-solid fa-calendar-days"></i></span>
-                        <span class="nav-label">Gestión de Eventos</span>
-                    </button>
-                </li>
-                <li class="nav-item" id="navItem-operaciones-metas">
-                    <button class="nav-link" data-view="operaciones-metas" id="nav-operaciones-metas">
-                        <span class="nav-icon"><i class="fa-solid fa-user-tie"></i></span>
-                        <span class="nav-label">Metas Asesor</span>
-                    </button>
-                </li>
-            </ul>
-
-            <!-- Marketing -->
-            <ul class="nav-group" id="navGroup-marketing">
-                <li class="nav-group-label">Marketing</li>
-                <li class="nav-item">
-                    <button class="nav-link" id="nav-marketing-toggle">
-                        <span class="nav-icon"><i class="fa-solid fa-chart-line"></i></span>
-                        <span class="nav-label">Marketing</span>
-                        <i class="fa-solid fa-chevron-right nav-chevron" id="marketingChevron"></i>
-                    </button>
-                    <ul class="nav-submenu" id="marketingSubmenu">
-                        <li class="nav-item" id="navItem-mkt-inversion">
-                            <button class="nav-sublink" data-view="marketing-inversion" id="nav-marketing-inversion">
-                                <i class="fa-solid fa-coins"></i>
-                                <span class="nav-label">Inversión Publicitaria</span>
-                            </button>
-                        </li>
-                        <li class="nav-item" id="navItem-mkt-metas">
-                            <button class="nav-sublink" data-view="marketing-metas" id="nav-marketing-metas">
-                                <i class="fa-solid fa-bullseye"></i>
-                                <span class="nav-label">Metas de Marketing</span>
-                            </button>
-                        </li>
-                    </ul>
-                </li>
-            </ul>
-
-            <!-- Administración -->
-            <ul class="nav-group" id="navGroup-admin">
-                <li class="nav-group-label">Administración</li>
-                <li class="nav-item" id="navItem-usuarios">
-                    <button class="nav-link" data-view="admin-usuarios" id="nav-admin-usuarios">
-                        <span class="nav-icon"><i class="fa-solid fa-users"></i></span>
-                        <span class="nav-label">Gestión de Usuarios</span>
-                    </button>
-                </li>
-                <li class="nav-item" id="navItem-config">
-                    <button class="nav-link" data-view="admin-configuracion" id="nav-admin-config">
-                        <span class="nav-icon"><i class="fa-solid fa-gear"></i></span>
-                        <span class="nav-label">Configuración</span>
-                    </button>
-                </li>
-            </ul>
-
-        </nav>
-
-        <!-- User footer -->
-        <div class="sidebar-footer">
-            <div class="sidebar-user">
-                <div class="sidebar-avatar" id="sidebarAvatar">U</div>
-                <div class="sidebar-user-info">
-                    <div class="sidebar-user-name" id="sidebarUserName">Cargando...</div>
-                    <div class="sidebar-user-role" id="sidebarUserRole">—</div>
-                </div>
-            </div>
-        </div>
-    </aside>
-
-    <!-- ═══════════════════════════════════════════ MAIN ═══ -->
-    <div class="main-content" id="mainContent">
-
-        <!-- Topbar -->
-        <header class="topbar">
-            <div class="topbar-left">
-                <button class="btn-mobile-menu" id="btnMobileMenu">
-                    <i class="fa-solid fa-bars"></i>
-                </button>
-                <div>
-                    <div class="topbar-title" id="topbarTitle">Dashboard</div>
-                    <div class="topbar-subtitle" id="topbarSubtitle">Panel general del sistema</div>
-                </div>
-            </div>
-            <div class="topbar-right">
-                <span style="font-size:12px;color:var(--text-muted);" id="topbarUser"></span>
-                <button class="btn-topbar btn-logout-topbar" onclick="logout()">
-                    <i class="fa-solid fa-right-from-bracket"></i>
-                    <span class="d-none-sm">Salir</span>
-                </button>
-            </div>
-        </header>
-
-        <!-- Contenido de vistas -->
-        <main class="page-content" id="viewContainer">
-            <div style="display:flex;align-items:center;justify-content:center;height:400px;">
-                <div style="text-align:center;">
-                    <div class="spinner" style="margin:0 auto 16px;width:40px;height:40px;"></div>
-                    <p style="color:var(--text-muted)">Cargando...</p>
-                </div>
-            </div>
-        </main>
     </div>
 
-</div>
+    <!-- ── Toast container ── -->
+    <div class="toast-container" id="toastContainer"></div>
 
-<!-- ── Toast container ── -->
-<div class="toast-container" id="toastContainer"></div>
-
-<script src="login.js"></script>
-<script src="app.js"></script>
+    <script src="login.js"></script>
+    <script src="app.js"></script>
 
 </body>
+
 </html>
