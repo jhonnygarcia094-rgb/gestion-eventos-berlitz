@@ -1,185 +1,157 @@
-const express = require('express');
-const sql = require('mssql');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const path = require('path');
+// server.js — Servidor principal Express (refactorizado)
+const express    = require('express');
+const cors       = require('cors');
+const helmet     = require('helmet');
+const path       = require('path');
+const rateLimit  = require('express-rate-limit');
 require('dotenv').config();
 
-const app = express();
-
-// --- IMPORTAR RUTAS ---
-const authRoutes = require('./routes/auth');
-const { verificarToken, verificarPermiso } = require('./middleware/auth');
-const { registrarAuditoria, obtenerIP } = require('./middleware/auditoria');
-
-// --- CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS ---
-app.use(express.static(path.join(__dirname, './')));
-
-// --- CONFIGURACIÓN CORS SEGURA ---
-const corsOptions = {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-    optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
-app.use(bodyParser.json());
-
-// --- CONFIGURACIÓN DE CREDENCIALES (Desde variables de entorno) ---
-const config = {
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    server: process.env.DB_SERVER,
-    database: process.env.DB_DATABASE,
-    options: {
-        encrypt: true,
-        trustServerCertificate: false
-    }
-};
-
-// Guardar config en app.locals para acceso en rutas
-app.locals.dbConfig = config;
-
-// Validar que existan las variables de entorno necesarias
-if (!config.user || !config.password || !config.server || !config.database) {
-    console.error('❌ ERROR: Falta configurar las variables de entorno en .env');
+// Validar variables de entorno críticas
+const requiredEnvVars = ['DB_USER', 'DB_PASSWORD', 'DB_SERVER', 'DB_DATABASE', 'JWT_SECRET'];
+const missingVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingVars.length > 0) {
+    console.error(`❌ FATAL: Variables de entorno faltantes: ${missingVars.join(', ')}`);
     process.exit(1);
 }
 
-// --- RUTA PARA CARGAR LA PÁGINA WEB ---
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
+const app = express();
 
-// --- USAR RUTAS DE AUTENTICACIÓN ---
-app.use('/api/auth', authRoutes);
+// ─────────────────────────────────────────────────────────────────────────────
+// Seguridad: Helmet (headers HTTP seguros)
+// ─────────────────────────────────────────────────────────────────────────────
+app.use(helmet({
+    contentSecurityPolicy: false, // Desactivar CSP para permitir CDNs (FontAwesome, Google Fonts)
+    crossOriginEmbedderPolicy: false
+}));
 
-// --- OBTENER REGISTROS (CON AUTENTICACIÓN) ---
-app.get('/eventos', verificarToken, verificarPermiso('ver'), async (req, res) => {
-    try {
-        let pool = await sql.connect(config);
-        const anioActual = new Date().getFullYear();
-        
-        let result = await pool.request()
-            .input('anio', sql.Int, anioActual)
-            .query(`
-                SELECT E.ID, E.Descripción, E.Fecha, D.Des_pipeline 
-                FROM [hubspot].[EventosyFestivos] E
-                LEFT JOIN [hubspot].[Dim_pipeline] D ON E.ID_pipeline = D.ID_pipeline
-                WHERE YEAR(E.Fecha) = @anio
-                ORDER BY E.Fecha DESC
-            `);
-        
-        res.json(result.recordset);
-        await pool.close();
-    } catch (err) {
-        console.error('Error en /eventos:', err.message);
-        res.status(500).json({ error: 'Error al obtener eventos' });
-    }
-});
+// ─────────────────────────────────────────────────────────────────────────────
+// CORS
+// ─────────────────────────────────────────────────────────────────────────────
+const allowedOrigins = [
+    process.env.CORS_ORIGIN,
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+].filter(Boolean);
 
-// --- OBTENER LISTA DE PIPELINES ---
-app.get('/pipelines', verificarToken, async (req, res) => {
-    try {
-        let pool = await sql.connect(config);
-        let result = await pool.request().query(`
-            SELECT ID_pipeline, Des_pipeline 
-            FROM [hubspot].[Dim_pipeline]
-            ORDER BY Des_pipeline ASC
-        `);
-        res.json(result.recordset);
-        await pool.close();
-    } catch (err) {
-        console.error('Error en /pipelines:', err.message);
-        res.status(500).json({ error: 'Error al obtener pipelines' });
-    }
-});
-
-// --- INSERTAR NUEVO REGISTRO (CON AUTENTICACIÓN) ---
-app.post('/eventos', verificarToken, verificarPermiso('crear'), async (req, res) => {
-    const { descripcion, fecha, id_pipeline } = req.body;
-    const ip = obtenerIP(req);
-    const userAgent = req.headers['user-agent'];
-    
-    // Validar datos de entrada
-    if (!descripcion || !fecha || !id_pipeline) {
-        return res.status(400).json({ error: 'Faltan campos requeridos' });
-    }
-    
-    try {
-        let pool = await sql.connect(config);
-        
-        let insertResult = await pool.request()
-            .input('desc', sql.NVarChar, descripcion)
-            .input('fecha', sql.Date, fecha)
-            .input('pipe', sql.Int, id_pipeline)
-            .query(`
-                INSERT INTO [hubspot].[EventosyFestivos] (Descripción, Fecha, ID_pipeline)
-                OUTPUT INSERTED.ID
-                VALUES (@desc, @fecha, @pipe)
-            `);
-        
-        const idEvento = insertResult.recordset[0].ID;
-        
-        // Registrar en auditoría
-        await registrarAuditoria(pool, req.usuario.id, 'CREAR_EVENTO', 'EventosyFestivos', idEvento, `Evento creado: ${descripcion}`, null, { descripcion, fecha, id_pipeline }, ip, userAgent, 'EXITOSO');
-        
-        res.status(201).json({ mensaje: 'Evento guardado exitosamente', id: idEvento });
-        await pool.close();
-    } catch (err) {
-        console.error('Error al insertar:', err.message);
-        res.status(500).json({ error: 'Error al guardar el registro' });
-    }
-});
-
-// --- ELIMINAR UN REGISTRO (CON AUTENTICACIÓN) ---
-app.post('/eliminar-evento', verificarToken, verificarPermiso('eliminar'), async (req, res) => {
-    const { id } = req.body;
-    const ip = obtenerIP(req);
-    const userAgent = req.headers['user-agent'];
-    
-    // Validar que el ID sea un número
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ error: 'ID inválido' });
-    }
-    
-    try {
-        let pool = await sql.connect(config);
-        
-        // Obtener evento antes de eliminar (para auditoría)
-        let eventoActual = await pool.request()
-            .input('id', sql.Int, id)
-            .query('SELECT ID, Descripción FROM [hubspot].[EventosyFestivos] WHERE ID = @id');
-        
-        if (eventoActual.recordset.length === 0) {
-            await pool.close();
-            return res.status(404).json({ error: 'Evento no encontrado' });
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error(`CORS: Origen no permitido: ${origin}`));
         }
-        
-        const evento = eventoActual.recordset[0];
-        
-        await pool.request()
-            .input('id', sql.Int, id)
-            .query('DELETE FROM [hubspot].[EventosyFestivos] WHERE ID = @id');
-        
-        // Registrar en auditoría
-        await registrarAuditoria(pool, req.usuario.id, 'ELIMINAR_EVENTO', 'EventosyFestivos', id, `Evento eliminado: ${evento.Descripción}`, { id: evento.ID, descripcion: evento.Descripción }, null, ip, userAgent, 'EXITOSO');
-        
-        res.status(200).json({ mensaje: 'Evento eliminado' });
-        await pool.close();
-    } catch (err) {
-        console.error('Error al eliminar:', err.message);
-        res.status(500).json({ error: 'Error al eliminar el registro' });
-    }
+    },
+    methods:     ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 200
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rate Limiting (seguridad contra brute-force)
+// ─────────────────────────────────────────────────────────────────────────────
+const authLimiter = rateLimit({
+    windowMs:        15 * 60 * 1000, // 15 minutos
+    max:             20,              // máximo 20 intentos
+    message:         { error: 'Demasiados intentos. Intenta de nuevo en 15 minutos.' },
+    standardHeaders: true,
+    legacyHeaders:   false,
+    skip: (req) => req.method === 'OPTIONS'
 });
 
-// --- MANEJO DE ERRORES GLOBAL ---
+const apiLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minuto
+    max:      200,
+    message:  { error: 'Demasiadas solicitudes. Intenta de nuevo en un momento.' },
+    standardHeaders: true,
+    legacyHeaders:   false,
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Body Parsing
+// ─────────────────────────────────────────────────────────────────────────────
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Archivos estáticos
+// ─────────────────────────────────────────────────────────────────────────────
+app.use(express.static(path.join(__dirname, './')));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inicializar Pool de BD al arrancar
+// ─────────────────────────────────────────────────────────────────────────────
+const { getPool } = require('./utils/dbPool');
+getPool()
+    .then(() => console.log('✅ Conexión a SQL Server establecida'))
+    .catch(err => {
+        console.error('❌ Error conectando a SQL Server:', err.message);
+        process.exit(1);
+    });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IMPORTAR RUTAS
+// ─────────────────────────────────────────────────────────────────────────────
+const authRoutes          = require('./routes/auth');
+const eventosRoutes       = require('./routes/eventos');
+const marketingRoutes     = require('./routes/marketing');
+const configuracionRoutes = require('./routes/configuracion');
+const permisosRoutes      = require('./routes/permisos');
+const dashboardRoutes     = require('./routes/dashboard');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MONTAR RUTAS
+// ─────────────────────────────────────────────────────────────────────────────
+app.use('/api/auth',          authLimiter, authRoutes);
+app.use('/api/eventos',       apiLimiter,  eventosRoutes);
+app.use('/api/marketing',     apiLimiter,  marketingRoutes);
+app.use('/api/configuracion', apiLimiter,  configuracionRoutes);
+app.use('/api/permisos',      apiLimiter,  permisosRoutes);
+app.use('/api/dashboard',     apiLimiter,  dashboardRoutes);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rutas de páginas HTML
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/', (req, res) => res.redirect('/login.html'));
+
+app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'app.html')));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Health Check
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/health', (req, res) => {
+    res.json({
+        status:    'ok',
+        timestamp: new Date().toISOString(),
+        env:       process.env.NODE_ENV || 'development'
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Manejo global de errores
+// ─────────────────────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
     console.error('Error no capturado:', err);
+
+    if (err.message && err.message.includes('CORS')) {
+        return res.status(403).json({ error: 'Acceso denegado: origen no permitido' });
+    }
+
     res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-// --- INICIO DEL SERVIDOR ---
+// 404 para rutas API no encontradas
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INICIO DEL SERVIDOR
+// ─────────────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`✅ Servidor activo en puerto ${PORT}`);
-    console.log(`Entorno: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 URL: http://localhost:${PORT}`);
 });
+
+module.exports = app;
