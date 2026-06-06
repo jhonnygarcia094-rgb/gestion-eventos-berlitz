@@ -80,7 +80,7 @@ app.use(express.static(path.join(__dirname, './')));
 // ─────────────────────────────────────────────────────────────────────────────
 // Inicializar Pool de BD al arrancar
 // ─────────────────────────────────────────────────────────────────────────────
-const { getPool } = require('./utils/dbPool');
+const { getPool } = require('./utils/db-pool');
 getPool()
     .then(() => console.log('✅ Conexión a SQL Server establecida'))
     .catch(err => {
