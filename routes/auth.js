@@ -136,9 +136,9 @@ router.post('/logout', verificarToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/auth/cambiar-contraseña (cambio normal autenticado)
+// POST /api/auth/cambiar-contrasena (cambio normal autenticado)
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/cambiar-contraseña', verificarToken, async (req, res) => {
+router.post(['/cambiar-contrasena', '/cambiar-contrase%C3%B1a', '/cambiar-contraseña'], verificarToken, async (req, res) => {
     const { contraseñaActual, contraseñaNueva } = req.body;
     const ip = obtenerIP(req);
 
@@ -187,9 +187,9 @@ router.post('/cambiar-contraseña', verificarToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/auth/olvidé-contraseña (solicitar recuperación)
+// POST /api/auth/olvide-contrasena (solicitar recuperación)
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/olvide-contraseña', async (req, res) => {
+router.post(['/olvide-contrasena', '/olvide-contrase%C3%B1a', '/olvide-contraseña'], async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email requerido' });
 
@@ -239,9 +239,9 @@ router.post('/olvide-contraseña', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/auth/reset-contraseña (usar token de recuperación)
+// POST /api/auth/reset-contrasena (usar token de recuperación)
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/reset-contraseña', async (req, res) => {
+router.post(['/reset-contrasena', '/reset-contrase%C3%B1a', '/reset-contraseña'], async (req, res) => {
     const { token, contraseñaNueva } = req.body;
 
     if (!token || !contraseñaNueva) {

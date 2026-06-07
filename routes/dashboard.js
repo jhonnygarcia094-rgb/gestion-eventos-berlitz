@@ -1,12 +1,12 @@
 // routes/dashboard.js — Estadísticas generales para el dashboard
 const express = require('express');
 const { getPool, sql } = require('../utils/db-pool');
-const { verificarToken } = require('../middleware/auth');
+const { verificarToken, esAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
 // GET /api/dashboard/stats — Estadísticas generales
-router.get('/stats', verificarToken, async (req, res) => {
+router.get('/stats', verificarToken, esAdmin, async (req, res) => {
     try {
         const pool = await getPool();
         const anioActual = new Date().getFullYear();

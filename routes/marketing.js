@@ -245,10 +245,10 @@ router.post('/metas', verificarToken, verificarPermisoModulo('marketing_metas', 
         return res.status(201).json({ mensaje: 'Meta registrada exitosamente', id: idMeta });
     } catch (err) {
         console.error('Error POST /marketing/metas:', err.message);
-        if (err.message.includes('UNIQUE')) {
+        if (err.message.includes('UNIQUE') || err.message.includes('PRIMARY KEY')) {
             return res.status(400).json({ error: 'Ya existe un registro para este período, país y tipo' });
         }
-        return res.status(500).json({ error: 'Error al guardar la meta' });
+        return res.status(500).json({ error: `Error al guardar la meta: ${err.message}` });
     }
 });
 
@@ -293,7 +293,7 @@ router.put('/metas/:id', verificarToken, verificarPermisoModulo('marketing_metas
         return res.json({ mensaje: 'Meta actualizada exitosamente' });
     } catch (err) {
         console.error('Error PUT /marketing/metas/:id:', err.message);
-        return res.status(500).json({ error: 'Error al actualizar la meta' });
+        return res.status(500).json({ error: `Error al actualizar la meta: ${err.message}` });
     }
 });
 
