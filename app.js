@@ -22,7 +22,15 @@ window.addEventListener('DOMContentLoaded', async () => {
     iniciarSidebar();
 
     // Routing
-    const hash = window.location.hash.replace('#', '') || 'dashboard';
+    let hash = window.location.hash.replace('#', '');
+    if (!hash || (hash === 'dashboard' && usuario.rol !== 'Admin')) {
+        if (usuario.rol === 'Admin') hash = 'dashboard';
+        else if (tienePermiso('eventos', 'ver')) hash = 'eventos';
+        else if (tienePermiso('marketing_inversion', 'ver')) hash = 'marketing-inversion';
+        else if (tienePermiso('marketing_metas', 'ver')) hash = 'marketing-metas';
+        else if (tienePermiso('operaciones_metas', 'ver')) hash = 'operaciones-metas';
+        else hash = 'dashboard'; // fallback, though it will show an error
+    }
     cargarVista(hash);
 });
 
@@ -37,7 +45,11 @@ function aplicarPermisos(usuario) {
     if (!esAdmin && !tienePermiso('eventos', 'ver')) document.getElementById('navItem-eventos')?.remove();
     if (!esAdmin && !tienePermiso('marketing_inversion', 'ver')) document.getElementById('navItem-mkt-inversion')?.remove();
     if (!esAdmin && !tienePermiso('marketing_metas', 'ver')) document.getElementById('navItem-mkt-metas')?.remove();
-    if (!esAdmin) document.getElementById('navGroup-admin')?.remove();
+    if (!esAdmin && !tienePermiso('operaciones_metas', 'ver')) document.getElementById('navItem-op-metas')?.remove();
+    if (!esAdmin) {
+        document.getElementById('navGroup-admin')?.remove();
+        document.getElementById('nav-dashboard')?.parentElement.remove();
+    }
 
     // Ocultar grupo marketing si no tiene sub-items
     const subItems = document.querySelectorAll('#marketingSubmenu .nav-item');
@@ -1127,7 +1139,7 @@ async function loadMetasAsesor(container) {
         <div class="filters-row">
             <input type="month" id="fMetAsPeriodo" class="form-control filter-input">
             <select id="fMetAsPipeline" class="form-control filter-input"><option value="">Todos los países</option></select>
-            <select id="fMetAsOwner" class="form-control filter-input"><option value="">Todos los asesores</option></select>
+            <div class="form-group"><input type="text" id="fMetAsOwner" list="fOwnerList" class="form-control filter-input" placeholder="Todos los asesores" autocomplete="off"><datalist id="fOwnerList"></datalist></div>
             <button class="btn btn-secondary" onclick="cargarMetasAsesor()"><i class="fa-solid fa-rotate-right"></i> Actualizar</button>
         </div>
         ${puedeCrear ? `<button class="btn btn-primary" onclick="abrirModalMetaAsesor(null)"><i class="fa-solid fa-plus"></i> Nueva Meta Asesor</button>` : ''}
@@ -1149,9 +1161,9 @@ async function loadMetasAsesor(container) {
         pipes.forEach(p => selPipe.innerHTML += `<option value="${p.ID_pipeline}">${escapeHtml(p.Des_pipeline)}</option>`);
 
         const respOw = await fetchAutenticado(`${API}/api/metas-asesor/owners`);
-        const owners = await respOw.json();
-        const selOw = document.getElementById('fMetAsOwner');
-        owners.forEach(o => selOw.innerHTML += `<option value="${escapeHtml(o.OwnerName)}">${escapeHtml(o.OwnerName)}</option>`);
+        window.ownersCache = await respOw.json();
+        const dlOw = document.getElementById('fOwnerList');
+        if (dlOw) window.ownersCache.forEach(o => dlOw.innerHTML += `<option value="${escapeHtml(o.OwnerName)}"></option>`);
     } catch (e) { }
 
     ['fMetAsPeriodo', 'fMetAsPipeline', 'fMetAsOwner'].forEach(id => {
@@ -1165,12 +1177,14 @@ async function loadMetasAsesor(container) {
 async function cargarMetasAsesor() {
     const periodo = document.getElementById('fMetAsPeriodo')?.value || '';
     const pipeline = document.getElementById('fMetAsPipeline')?.value || '';
-    const asesor = document.getElementById('fMetAsOwner')?.value || '';
+    const asesorName = document.getElementById('fMetAsOwner')?.value || '';
+    const ownerObj = window.ownersCache?.find(o => o.OwnerName === asesorName);
+    const id_owner = ownerObj ? ownerObj.OwnerId : '';
 
     let url = `${API}/api/metas-asesor?1=1`;
     if (periodo) url += `&periodo=${encodeURIComponent(periodo)}`;
     if (pipeline) url += `&pipeline=${pipeline}`;
-    if (asesor) url += `&asesor=${encodeURIComponent(asesor)}`;
+    if (id_owner) url += `&id_owner=${id_owner}`;
 
     try {
         const resp = await fetchAutenticado(url);

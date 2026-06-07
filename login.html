@@ -739,7 +739,7 @@
         btn.innerHTML = '<i class="fa-solid fa-spinner btn-spin"></i> Enviando...';
 
         try {
-            const resp = await fetch(`${API}/api/auth/olvide-contraseña`, {
+            const resp = await fetch(`${API}/api/auth/olvide-contrasena`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email })
@@ -777,7 +777,7 @@
 
         try {
             const token = localStorage.getItem('token');
-            const resp = await fetch(`${API}/api/auth/cambiar-contraseña`, {
+            const resp = await fetch(`${API}/api/auth/cambiar-contrasena`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
