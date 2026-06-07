@@ -1211,9 +1211,9 @@ async function abrirModalMetaAsesor(id) {
     const m = id ? metasAsesorData.find(x => x.ID_MetaAsesor === id) : null;
 
     let pipeOptions = '<option value="">-- Selecciona --</option>';
-    let ownerOptions = '<option value="">-- Selecciona --</option>';
+    let ownerOptions = '';
     let monedaOptions = '<option value="">-- Selecciona --</option>';
-    let ownersCache = [];
+    window.ownersCache = [];
 
     try {
         const respPipe = await fetchAutenticado(`${API}/api/eventos/pipelines`);
@@ -1221,8 +1221,8 @@ async function abrirModalMetaAsesor(id) {
         pipeOptions += pipes.map(p => `<option value="${p.ID_pipeline}" ${m && m.ID_pipeline === p.ID_pipeline ? 'selected' : ''}>${escapeHtml(p.Des_pipeline)}</option>`).join('');
 
         const respOw = await fetchAutenticado(`${API}/api/metas-asesor/owners`);
-        ownersCache = await respOw.json();
-        ownerOptions += ownersCache.map(o => `<option value="${escapeHtml(o.OwnerId)}" ${m && m.ID_Owner === o.OwnerId ? 'selected' : ''}>${escapeHtml(o.OwnerName)}</option>`).join('');
+        window.ownersCache = await respOw.json();
+        ownerOptions += window.ownersCache.map(o => `<option value="${escapeHtml(o.OwnerName)}"></option>`).join('');
 
         const respDiv = await fetchAutenticado(`${API}/api/metas-asesor/divisas`);
         const divisas = await respDiv.json();
@@ -1233,7 +1233,7 @@ async function abrirModalMetaAsesor(id) {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
             <div class="form-group"><label class="form-label">Período *</label><input type="month" id="maPeriodo" class="form-control" value="${m?.ID_Periodo ? String(m.ID_Periodo).substring(0, 7) : ''}"></div>
             <div class="form-group"><label class="form-label">País / Pipeline *</label><select id="maPipeline" class="form-control">${pipeOptions}</select></div>
-            <div class="form-group"><label class="form-label">Asesor *</label><select id="maOwner" class="form-control">${ownerOptions}</select></div>
+            <div class="form-group"><label class="form-label">Asesor * (Escribe para buscar)</label><input type="text" id="maOwnerName" list="ownerList" class="form-control" value="${m ? escapeHtml(m.Asesor) : ''}" placeholder="Buscar asesor..." autocomplete="off"><datalist id="ownerList">${ownerOptions}</datalist></div>
             <div class="form-group"><label class="form-label">Moneda *</label><select id="maMoneda" class="form-control">${monedaOptions}</select></div>
             <div class="form-group"><label class="form-label">Recaudo</label><input type="number" id="maRecaudo" class="form-control" value="${m?.Recaudo || 0}" step="0.01" min="0"></div>
             <div class="form-group"><label class="form-label">Número de Ventas</label><input type="number" id="maVentas" class="form-control" value="${m?.NumeroVentas || 0}" min="0"></div>
@@ -1250,10 +1250,14 @@ async function guardarMetaAsesor(id) {
     let id_periodo = document.getElementById('maPeriodo')?.value?.trim();
     if (id_periodo) id_periodo += '-01';
 
+    const asesorName = document.getElementById('maOwnerName')?.value?.trim();
+    const ownerObj = window.ownersCache?.find(o => o.OwnerName === asesorName);
+    const id_owner = ownerObj ? ownerObj.OwnerId : null;
+
     const payload = {
         id_periodo,
         id_pipeline: document.getElementById('maPipeline')?.value,
-        id_owner: document.getElementById('maOwner')?.value,
+        id_owner,
         moneda: document.getElementById('maMoneda')?.value,
         recaudo: document.getElementById('maRecaudo')?.value,
         numero_ventas: document.getElementById('maVentas')?.value,
