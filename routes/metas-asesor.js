@@ -11,12 +11,12 @@ router.get('/owners', verificarToken, async (req, res) => {
     try {
         const pool = await getPool();
         const result = await pool.request().query(`
-            SELECT DISTINCT OwnerId, 
-                   CONCAT(FirstName, ' ', LastName) as OwnerName,
-                   Email
-            FROM [hubspot].[Dim_Owners] 
-            WHERE OwnerId IS NOT NULL
-            ORDER BY OwnerName
+            SELECT DISTINCT id as OwnerId, 
+                   fullName as OwnerName,
+                   email as Email
+            FROM [hubspot].[Owners] 
+            WHERE id IS NOT NULL
+            ORDER BY fullName
         `);
         return res.json(result.recordset);
     } catch (err) {
@@ -45,18 +45,21 @@ router.get('/divisas', verificarToken, async (req, res) => {
 router.get('/', verificarToken, verificarPermisoModulo('operaciones_metas', 'ver'), async (req, res) => {
     try {
         const pool = await getPool();
-        const { periodo, pipeline, asesor } = req.query;
+        const { periodo, pipeline, id_owner } = req.query;
 
         let where = '1=1';
         const request = pool.request();
 
-        if (periodo)  { where += ' AND m.ID_Periodo = @periodo'; request.input('periodo', sql.Date, periodo); }
+        if (periodo)  { 
+            where += ' AND CONVERT(varchar, m.ID_Periodo, 120) LIKE @periodo + \'%\''; 
+            request.input('periodo', sql.NVarChar, periodo.substring(0, 7)); 
+        }
         if (pipeline) { where += ' AND m.ID_pipeline = @pipeline'; request.input('pipeline', sql.Int, parseInt(pipeline)); }
-        if (asesor)   { where += ' AND m.Asesor = @asesor'; request.input('asesor', sql.NVarChar, asesor); }
+        if (id_owner) { where += ' AND m.ID_Owner = @id_owner'; request.input('id_owner', sql.Int, parseInt(id_owner)); }
 
         const result = await request.query(`
             SELECT m.ID_MetaAsesor, m.ID_Periodo, m.Pais, m.ID_pipeline, 
-                   m.Asesor, m.CORREO, m.Moneda, m.Recaudo, m.NumeroVentas, m.Tier,
+                   m.ID_Owner, m.Asesor, m.CORREO, m.Moneda, m.Recaudo, m.NumeroVentas, m.Tier,
                    p.Des_pipeline,
                    m.CreadoPor, m.ActualizadoPor, m.FechaCreacion, m.FechaActualizacion
             FROM [hubspot].[MetasAsesor] m
@@ -74,11 +77,11 @@ router.get('/', verificarToken, verificarPermisoModulo('operaciones_metas', 'ver
 
 // POST /metas-asesor — Crear meta
 router.post('/', verificarToken, verificarPermisoModulo('operaciones_metas', 'crear'), async (req, res) => {
-    const { id_periodo, id_pipeline, asesor, correo, moneda, recaudo, numero_ventas, tier } = req.body;
+    const { id_periodo, id_pipeline, id_owner, moneda, recaudo, numero_ventas, tier } = req.body;
     const ip = obtenerIP(req);
 
-    if (!id_periodo || !id_pipeline || !asesor || !moneda) {
-        return res.status(400).json({ error: 'Período, País, Asesor y Moneda son requeridos' });
+    if (!id_periodo || !id_pipeline || !id_owner || !moneda) {
+        return res.status(400).json({ error: 'Período, País, Asesor (Owner) y Moneda son requeridos' });
     }
 
     try {
@@ -90,13 +93,22 @@ router.post('/', verificarToken, verificarPermisoModulo('operaciones_metas', 'cr
             .query('SELECT Des_pipeline FROM [hubspot].[Dim_pipeline] WHERE ID_pipeline = @pipeId');
         const pais = pipeResult.recordset.length > 0 ? pipeResult.recordset[0].Des_pipeline : '';
 
-        // Validación de unicidad (Periodo + Pipeline + Asesor + Moneda)
+        // Obtener datos del Owner
+        const ownerResult = await pool.request()
+            .input('id_owner', sql.Int, parseInt(id_owner))
+            .query('SELECT fullName, email FROM [hubspot].[Owners] WHERE id = @id_owner');
+        if (ownerResult.recordset.length === 0) {
+            return res.status(400).json({ error: 'Asesor no encontrado en la base de datos de Owners.' });
+        }
+        const { fullName: asesor, email: correo } = ownerResult.recordset[0];
+
+        // Validación de unicidad (Periodo + Pipeline + Owner + Moneda)
         const check = await pool.request()
             .input('periodo', sql.Date, id_periodo)
             .input('pipeline', sql.Int, parseInt(id_pipeline))
-            .input('asesor', sql.NVarChar, asesor.trim())
+            .input('id_owner', sql.Int, parseInt(id_owner))
             .input('moneda', sql.NVarChar, moneda.trim())
-            .query('SELECT 1 FROM [hubspot].[MetasAsesor] WHERE ID_Periodo = @periodo AND ID_pipeline = @pipeline AND Asesor = @asesor AND Moneda = @moneda');
+            .query('SELECT 1 FROM [hubspot].[MetasAsesor] WHERE ID_Periodo = @periodo AND ID_pipeline = @pipeline AND ID_Owner = @id_owner AND Moneda = @moneda');
         
         if (check.recordset.length > 0) {
             return res.status(400).json({ error: 'Ya existe una meta registrada para este período, país, asesor y moneda.' });
@@ -106,8 +118,9 @@ router.post('/', verificarToken, verificarPermisoModulo('operaciones_metas', 'cr
             .input('periodo',       sql.Date,          id_periodo)
             .input('pais',          sql.NVarChar,      pais)
             .input('pipeline',      sql.Int,           parseInt(id_pipeline))
-            .input('asesor',        sql.NVarChar,      asesor.trim())
-            .input('correo',        sql.NVarChar,      (correo || '').trim())
+            .input('id_owner',      sql.Int,           parseInt(id_owner))
+            .input('asesor',        sql.NVarChar,      asesor)
+            .input('correo',        sql.NVarChar,      correo || '')
             .input('moneda',        sql.NVarChar,      moneda.trim())
             .input('recaudo',       sql.Decimal(18,2), recaudo ? parseFloat(recaudo) : 0)
             .input('numVentas',     sql.Int,           numero_ventas ? parseInt(numero_ventas) : 0)
@@ -115,9 +128,9 @@ router.post('/', verificarToken, verificarPermisoModulo('operaciones_metas', 'cr
             .input('user',          sql.Int,           req.usuario.id)
             .query(`
                 INSERT INTO [hubspot].[MetasAsesor] 
-                    (ID_Periodo, Pais, ID_pipeline, Asesor, CORREO, Moneda, Recaudo, NumeroVentas, Tier, CreadoPor, Fecha_Carga, FechaActualizacion)
+                    (ID_Periodo, Pais, ID_pipeline, ID_Owner, Asesor, CORREO, Moneda, Recaudo, NumeroVentas, Tier, CreadoPor, Fecha_Carga, FechaActualizacion)
                 OUTPUT INSERTED.ID_MetaAsesor
-                VALUES (@periodo, @pais, @pipeline, @asesor, @correo, @moneda, @recaudo, @numVentas, @tier, @user, GETDATE(), GETDATE())
+                VALUES (@periodo, @pais, @pipeline, @id_owner, @asesor, @correo, @moneda, @recaudo, @numVentas, @tier, @user, GETDATE(), GETDATE())
             `);
 
         const idMeta = result.recordset[0].ID_MetaAsesor;
@@ -139,7 +152,7 @@ router.post('/', verificarToken, verificarPermisoModulo('operaciones_metas', 'cr
 // PUT /metas-asesor/:id — Actualizar meta
 router.put('/:id', verificarToken, verificarPermisoModulo('operaciones_metas', 'editar'), async (req, res) => {
     const { id } = req.params;
-    const { id_periodo, id_pipeline, asesor, correo, moneda, recaudo, numero_ventas, tier } = req.body;
+    const { id_periodo, id_pipeline, id_owner, moneda, recaudo, numero_ventas, tier } = req.body;
     const ip = obtenerIP(req);
 
     try {
@@ -164,13 +177,29 @@ router.put('/:id', verificarToken, verificarPermisoModulo('operaciones_metas', '
             pais = pipeResult.recordset.length > 0 ? pipeResult.recordset[0].Des_pipeline : pais;
         }
 
+        // Obtener datos del Owner si cambió
+        let asesor = p.Asesor;
+        let correo = p.CORREO;
+        let finalIdOwner = p.ID_Owner;
+        if (id_owner && parseInt(id_owner) !== p.ID_Owner) {
+            const ownerResult = await pool.request()
+                .input('id_owner', sql.Int, parseInt(id_owner))
+                .query('SELECT fullName, email FROM [hubspot].[Owners] WHERE id = @id_owner');
+            if (ownerResult.recordset.length > 0) {
+                asesor = ownerResult.recordset[0].fullName;
+                correo = ownerResult.recordset[0].email;
+                finalIdOwner = parseInt(id_owner);
+            }
+        }
+
         await pool.request()
             .input('id',         sql.Int,           id)
             .input('periodo',    sql.Date,          id_periodo   || p.ID_Periodo)
             .input('pais',       sql.NVarChar,      pais)
             .input('pipeline',   sql.Int,           id_pipeline ? parseInt(id_pipeline) : p.ID_pipeline)
-            .input('asesor',     sql.NVarChar,      asesor       || p.Asesor)
-            .input('correo',     sql.NVarChar,      correo !== undefined ? correo : p.CORREO)
+            .input('id_owner',   sql.Int,           finalIdOwner)
+            .input('asesor',     sql.NVarChar,      asesor)
+            .input('correo',     sql.NVarChar,      correo)
             .input('moneda',     sql.NVarChar,      moneda       || p.Moneda)
             .input('recaudo',    sql.Decimal(18,2), recaudo      !== undefined ? parseFloat(recaudo) : p.Recaudo)
             .input('numVentas',  sql.Int,           numero_ventas !== undefined ? parseInt(numero_ventas) : p.NumeroVentas)
@@ -179,7 +208,7 @@ router.put('/:id', verificarToken, verificarPermisoModulo('operaciones_metas', '
             .query(`
                 UPDATE [hubspot].[MetasAsesor]
                 SET ID_Periodo = @periodo, Pais = @pais, ID_pipeline = @pipeline, 
-                    Asesor = @asesor, CORREO = @correo, Moneda = @moneda,
+                    ID_Owner = @id_owner, Asesor = @asesor, CORREO = @correo, Moneda = @moneda,
                     Recaudo = @recaudo, NumeroVentas = @numVentas, Tier = @tier,
                     ActualizadoPor = @user, FechaActualizacion = GETDATE()
                 WHERE ID_MetaAsesor = @id

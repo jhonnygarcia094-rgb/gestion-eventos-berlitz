@@ -20,8 +20,8 @@ router.get('/inversion', verificarToken, verificarPermisoModulo('marketing_inver
         const request = pool.request();
 
         if (periodo) {
-            where += ' AND i.ID_Periodo = @periodo';
-            request.input('periodo', sql.NVarChar, periodo);
+            where += ' AND CONVERT(varchar, i.ID_Periodo, 120) LIKE @periodo + \'%\'';
+            request.input('periodo', sql.NVarChar, periodo.substring(0, 7));
         }
         if (pipeline) {
             where += ' AND i.ID_pipeline = @pipeline';
@@ -59,6 +59,15 @@ router.post('/inversion', verificarToken, verificarPermisoModulo('marketing_inve
 
     try {
         const pool = await getPool();
+
+        const check = await pool.request()
+            .input('periodo', sql.NVarChar, id_periodo.toString().trim())
+            .input('pipeline', sql.Int, parseInt(id_pipeline))
+            .query('SELECT 1 FROM [hubspot].[inversionPublicitaria] WHERE ID_Periodo = @periodo AND ID_pipeline = @pipeline');
+            
+        if (check.recordset.length > 0) {
+            return res.status(400).json({ error: 'Ya existe una inversión registrada para este período y país.' });
+        }
 
         const result = await pool.request()
             .input('periodo',      sql.NVarChar, id_periodo.toString().trim())
@@ -105,7 +114,7 @@ router.put('/inversion/:id', verificarToken, verificarPermisoModulo('marketing_i
 
         await pool.request()
             .input('id',       sql.Int,       id)
-            .input('periodo',  sql.NVarChar,  id_periodo   || prev.ID_Periodo)
+            .input('periodo',  sql.Date,      id_periodo   || prev.ID_Periodo)
             .input('amount',   sql.Decimal(18, 2), parseFloat(amount_spend !== undefined ? amount_spend : prev.Amount_Spend))
             .input('pipeline', sql.Int,       id_pipeline  ? parseInt(id_pipeline) : prev.ID_pipeline)
             .input('user_id',  sql.Int,       req.usuario.id)
@@ -170,7 +179,7 @@ router.get('/metas', verificarToken, verificarPermisoModulo('marketing_metas', '
         let where = '1=1';
         const request = pool.request();
 
-        if (periodo) { where += ' AND ID_Periodo = @periodo'; request.input('periodo', sql.NVarChar, periodo); }
+        if (periodo) { where += ' AND CONVERT(varchar, ID_Periodo, 120) LIKE @periodo + \'%\''; request.input('periodo', sql.NVarChar, periodo.substring(0, 7)); }
         if (pais)    { where += ' AND Pais = @pais';          request.input('pais', sql.NVarChar, pais); }
         if (tipo)    { where += ' AND TipoLeads = @tipo';     request.input('tipo', sql.NVarChar, tipo); }
 
@@ -204,8 +213,16 @@ router.post('/metas', verificarToken, verificarPermisoModulo('marketing_metas', 
         // Generar llave única
         const llave = `${id_periodo}_${pais}_${tipo_leads}`.replace(/\s/g, '_').toUpperCase();
 
+        const check = await pool.request()
+            .input('llave', sql.NVarChar, llave)
+            .query('SELECT 1 FROM [hubspot].[MetasMarketing] WHERE llave = @llave');
+            
+        if (check.recordset.length > 0) {
+            return res.status(400).json({ error: 'Ya existe una meta registrada para este período, país y tipo.' });
+        }
+
         const result = await pool.request()
-            .input('periodo',    sql.NVarChar,     id_periodo.toString().trim())
+            .input('periodo',    sql.Date,         id_periodo.toString().trim())
             .input('pais',       sql.NVarChar,     pais.trim())
             .input('tipo',       sql.NVarChar,     tipo_leads.trim())
             .input('leads',      sql.Int,          leads ? parseInt(leads) : 0)
@@ -255,13 +272,13 @@ router.put('/metas/:id', verificarToken, verificarPermisoModulo('marketing_metas
         const p = prev.recordset[0];
 
         await pool.request()
-            .input('id',       sql.Int,          id)
-            .input('periodo',  sql.NVarChar,     id_periodo        || p.ID_Periodo)
-            .input('pais',     sql.NVarChar,     pais              || p.Pais)
-            .input('tipo',     sql.NVarChar,     tipo_leads        || p.TipoLeads)
-            .input('leads',    sql.Int,          leads             !== undefined ? parseInt(leads)                       : p.Leads)
-            .input('ratio',    sql.Decimal(10,4), ratio_conversion !== undefined ? parseFloat(ratio_conversion)         : p.Ratio_conversion)
-            .input('matric',   sql.Int,          matriculas        !== undefined ? parseInt(matriculas)                  : p.Matriculas)
+            .input('id',         sql.Int,          id)
+            .input('periodo',    sql.Date,         id_periodo ? id_periodo.toString().trim() : p.ID_Periodo)
+            .input('pais',       sql.NVarChar,     pais       ? pais.trim() : p.Pais)
+            .input('tipo',       sql.NVarChar,     tipo_leads        || p.TipoLeads)
+            .input('leads',      sql.Int,          leads             !== undefined ? parseInt(leads)                       : p.Leads)
+            .input('ratio',      sql.Decimal(10,4), ratio_conversion !== undefined ? parseFloat(ratio_conversion)         : p.Ratio_conversion)
+            .input('matric',     sql.Int,          matriculas        !== undefined ? parseInt(matriculas)                  : p.Matriculas)
             .query(`
                 UPDATE [hubspot].[MetasMarketing]
                 SET ID_Periodo = @periodo, Pais = @pais, TipoLeads = @tipo,
@@ -315,12 +332,12 @@ router.get('/metas/catalogos', verificarToken, async (req, res) => {
     try {
         const pool = await getPool();
         const paises = await pool.request().query('SELECT DISTINCT Pais FROM [hubspot].[MetasMarketing] ORDER BY Pais');
-        const tipos  = await pool.request().query('SELECT DISTINCT TipoLeads FROM [hubspot].[MetasMarketing] ORDER BY TipoLeads');
+        const tipos  = await pool.request().query('SELECT DISTINCT Tipo_Lead FROM [hubspot].[Dim_Fuente Original] WHERE Tipo_Lead IS NOT NULL ORDER BY Tipo_Lead');
         const periodos = await pool.request().query('SELECT DISTINCT ID_Periodo FROM [hubspot].[MetasMarketing] ORDER BY ID_Periodo DESC');
 
         return res.json({
             paises:   paises.recordset.map(r => r.Pais),
-            tipos:    tipos.recordset.map(r => r.TipoLeads),
+            tipos:    tipos.recordset.map(r => r.Tipo_Lead),
             periodos: periodos.recordset.map(r => r.ID_Periodo)
         });
     } catch (err) {

@@ -13,10 +13,11 @@ const router = express.Router();
 // POST /api/auth/login
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
-    const { email, contraseña } = req.body;
-    const ip        = obtenerIP(req);
-    const userAgent = req.headers['user-agent'];
+    let { email, contraseña } = req.body;
+    const ip = obtenerIP(req);
+    const userAgent = req.headers['user-agent'] || 'Desconocido';
 
+    if (contraseña) contraseña = contraseña.trim();
     if (!email || !contraseña) {
         return res.status(400).json({ error: 'Email y contraseña requeridos' });
     }
@@ -300,11 +301,17 @@ router.post('/reset-contraseña', async (req, res) => {
 // POST /api/auth/crear-usuario (Admin)
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/crear-usuario', verificarToken, esAdmin, async (req, res) => {
-    const { email, nombre, apellido, rol } = req.body;
+    let { email, nombre, apellido, rol, contraseña } = req.body;
     const ip = obtenerIP(req);
 
-    if (!email || !nombre || !rol) {
-        return res.status(400).json({ error: 'Email, nombre y rol son requeridos' });
+    if (contraseña) contraseña = contraseña.trim();
+
+    if (!email || !nombre || !rol || !contraseña) {
+        return res.status(400).json({ error: 'Email, nombre, rol y contraseña son requeridos' });
+    }
+
+    if (contraseña.length < 6) {
+        return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
     }
 
     try {
@@ -320,15 +327,7 @@ router.post('/crear-usuario', verificarToken, esAdmin, async (req, res) => {
 
         const idRol = rolResult.recordset[0].ID_Rol;
 
-        // Generar contraseña temporal segura
-        const chars   = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$';
-        let contraseñaTemporal = '';
-        for (let i = 0; i < 10; i++) {
-            contraseñaTemporal += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        contraseñaTemporal += 'Aa1!'; // Garantizar complejidad
-
-        const hashContraseña = await bcrypt.hash(contraseñaTemporal, 12);
+        const hashContraseña = await bcrypt.hash(contraseña, 12);
 
         const insertResult = await pool.request()
             .input('email',    sql.NVarChar, email.trim().toLowerCase())
@@ -357,13 +356,9 @@ router.post('/crear-usuario', verificarToken, esAdmin, async (req, res) => {
         await registrarAuditoria(pool, req.usuario.id, 'CREAR_USUARIO', 'Usuarios', idUsuario,
             `Usuario creado: ${email}`, null, { email, nombre, apellido, rol }, ip, req.headers['user-agent'], 'EXITOSO');
 
-        // Enviar correo de bienvenida (no bloquear respuesta)
-        enviarCorreoBienvenida(email, nombre, email, contraseñaTemporal)
-            .catch(err => console.error('Error enviando correo bienvenida:', err.message));
-
         return res.status(201).json({
-            mensaje: 'Usuario creado exitosamente. Se envió un correo con las credenciales.',
-            usuario: { id: idUsuario, email, nombre, apellido, rol, contraseñaTemporal }
+            mensaje: 'Usuario creado exitosamente.',
+            usuario: { id: idUsuario, email, nombre, apellido, rol }
         });
 
     } catch (err) {
@@ -401,8 +396,10 @@ router.get('/usuarios', verificarToken, esAdmin, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.put('/usuarios/:id', verificarToken, esAdmin, async (req, res) => {
     const { id } = req.params;
-    const { nombre, apellido, rol, activo, bloqueado } = req.body;
+    let { nombre, apellido, rol, activo, bloqueado, contraseña } = req.body;
     const ip = obtenerIP(req);
+
+    if (contraseña) contraseña = contraseña.trim();
 
     try {
         const pool = await getPool();
@@ -433,9 +430,16 @@ router.put('/usuarios/:id', verificarToken, esAdmin, async (req, res) => {
             }
         }
 
+        let hasPassword = false;
+        let nuevoHash = '';
+        if (contraseña && contraseña.length >= 6) {
+            nuevoHash = await bcrypt.hash(contraseña, 12);
+            hasPassword = true;
+        }
+
         const query = idRolNuevo
-            ? `UPDATE [hubspot].[Usuarios] SET Nombre=@nombre, Apellido=@apellido, Activo=@activo, Bloqueado=@bloqueado, ID_Rol=@id_rol, Fecha_Actualizacion=GETDATE() WHERE ID_Usuario=@id`
-            : `UPDATE [hubspot].[Usuarios] SET Nombre=@nombre, Apellido=@apellido, Activo=@activo, Bloqueado=@bloqueado, Fecha_Actualizacion=GETDATE() WHERE ID_Usuario=@id`;
+            ? `UPDATE [hubspot].[Usuarios] SET Nombre=@nombre, Apellido=@apellido, Activo=@activo, Bloqueado=@bloqueado, ID_Rol=@id_rol, Fecha_Actualizacion=GETDATE() ${hasPassword ? ', Contraseña_Hash=@hash, Primer_Login=1' : ''} WHERE ID_Usuario=@id`
+            : `UPDATE [hubspot].[Usuarios] SET Nombre=@nombre, Apellido=@apellido, Activo=@activo, Bloqueado=@bloqueado, Fecha_Actualizacion=GETDATE() ${hasPassword ? ', Contraseña_Hash=@hash, Primer_Login=1' : ''} WHERE ID_Usuario=@id`;
 
         const req2 = pool.request()
             .input('id',       sql.Int,      id)
@@ -444,6 +448,7 @@ router.put('/usuarios/:id', verificarToken, esAdmin, async (req, res) => {
             .input('activo',   sql.Bit,      activo   !== undefined ? activo   : anterior.Activo)
             .input('bloqueado', sql.Bit,     bloqueado !== undefined ? bloqueado : anterior.Bloqueado);
 
+        if (hasPassword) req2.input('hash', sql.NVarChar, nuevoHash);
         if (idRolNuevo) req2.input('id_rol', sql.Int, idRolNuevo);
 
         await req2.query(query);
