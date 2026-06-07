@@ -1139,7 +1139,7 @@ async function loadMetasAsesor(container) {
         <div class="filters-row">
             <input type="month" id="fMetAsPeriodo" class="form-control filter-input">
             <select id="fMetAsPipeline" class="form-control filter-input"><option value="">Todos los países</option></select>
-            <div class="form-group"><input type="text" id="fMetAsOwner" list="fOwnerList" class="form-control filter-input" placeholder="Todos los asesores" autocomplete="off"><datalist id="fOwnerList"></datalist></div>
+            <input type="text" id="fMetAsOwner" list="fOwnerList" class="form-control filter-input" placeholder="Todos los asesores" autocomplete="off"><datalist id="fOwnerList"></datalist>
             <button class="btn btn-secondary" onclick="cargarMetasAsesor()"><i class="fa-solid fa-rotate-right"></i> Actualizar</button>
         </div>
         ${puedeCrear ? `<button class="btn btn-primary" onclick="abrirModalMetaAsesor(null)"><i class="fa-solid fa-plus"></i> Nueva Meta Asesor</button>` : ''}
