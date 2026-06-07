@@ -231,9 +231,9 @@ router.post('/metas', verificarToken, verificarPermisoModulo('marketing_metas', 
             .input('llave',      sql.NVarChar,     llave)
             .query(`
                 INSERT INTO [hubspot].[MetasMarketing] 
-                    (ID_Periodo, Pais, TipoLeads, Leads, Ratio_conversion, Matriculas, llave, FechaCarga, FechaActualizacion)
+                    (ID_Periodo, Pais, TipoLeads, Leads, Ratio_conversion, Matriculas, FechaCarga, FechaActualizacion)
                 OUTPUT INSERTED.ID_Meta
-                VALUES (@periodo, @pais, @tipo, @leads, @ratio, @matriculas, @llave, GETDATE(), GETDATE())
+                VALUES (@periodo, @pais, @tipo, @leads, @ratio, @matriculas, GETDATE(), GETDATE())
             `);
 
         const idMeta = result.recordset[0].ID_Meta;
@@ -278,11 +278,15 @@ router.put('/metas/:id', verificarToken, verificarPermisoModulo('marketing_metas
             .input('tipo',       sql.NVarChar,     tipo_leads        || p.TipoLeads)
             .input('leads',      sql.Int,          leads             !== undefined ? parseInt(leads)                       : p.Leads)
             .input('ratio',      sql.Decimal(10,4), ratio_conversion !== undefined ? parseFloat(ratio_conversion)         : p.Ratio_conversion)
-            .input('matric',     sql.Int,          matriculas        !== undefined ? parseInt(matriculas)                  : p.Matriculas)
+            .input('matriculas', sql.Int,          matriculas        !== undefined ? parseInt(matriculas)                  : p.Matriculas)
             .query(`
                 UPDATE [hubspot].[MetasMarketing]
-                SET ID_Periodo = @periodo, Pais = @pais, TipoLeads = @tipo,
-                    Leads = @leads, Ratio_conversion = @ratio, Matriculas = @matric,
+                SET ID_Periodo = @periodo,
+                    Pais = @pais,
+                    TipoLeads = @tipo,
+                    Leads = @leads,
+                    Ratio_conversion = @ratio,
+                    Matriculas = @matriculas,
                     FechaActualizacion = GETDATE()
                 WHERE ID_Meta = @id
             `);
