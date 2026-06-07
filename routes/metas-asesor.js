@@ -11,11 +11,12 @@ router.get('/owners', verificarToken, async (req, res) => {
     try {
         const pool = await getPool();
         const result = await pool.request().query(`
-            SELECT DISTINCT id as OwnerId, 
+            SELECT MIN(id) as OwnerId, 
                    fullName as OwnerName,
-                   email as Email
+                   MIN(email) as Email
             FROM [hubspot].[Owners] 
-            WHERE id IS NOT NULL
+            WHERE id IS NOT NULL AND fullName IS NOT NULL AND fullName <> ''
+            GROUP BY fullName
             ORDER BY fullName
         `);
         return res.json(result.recordset);
@@ -115,7 +116,7 @@ router.post('/', verificarToken, verificarPermisoModulo('operaciones_metas', 'cr
         }
 
         const result = await pool.request()
-            .input('periodo',       sql.Date,          id_periodo)
+            .input('periodo',       sql.NVarChar,      id_periodo)
             .input('pais',          sql.NVarChar,      pais)
             .input('pipeline',      sql.Int,           parseInt(id_pipeline))
             .input('id_owner',      sql.Int,           parseInt(id_owner))
@@ -194,7 +195,7 @@ router.put('/:id', verificarToken, verificarPermisoModulo('operaciones_metas', '
 
         await pool.request()
             .input('id',         sql.Int,           id)
-            .input('periodo',    sql.Date,          id_periodo   || p.ID_Periodo)
+            .input('periodo',    sql.NVarChar,      id_periodo   || p.ID_Periodo)
             .input('pais',       sql.NVarChar,      pais)
             .input('pipeline',   sql.Int,           id_pipeline ? parseInt(id_pipeline) : p.ID_pipeline)
             .input('id_owner',   sql.Int,           finalIdOwner)

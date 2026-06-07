@@ -222,7 +222,7 @@ router.post('/metas', verificarToken, verificarPermisoModulo('marketing_metas', 
         }
 
         const result = await pool.request()
-            .input('periodo',    sql.Date,         id_periodo.toString().trim())
+            .input('periodo',    sql.NVarChar,     id_periodo.toString().trim())
             .input('pais',       sql.NVarChar,     pais.trim())
             .input('tipo',       sql.NVarChar,     tipo_leads.trim())
             .input('leads',      sql.Int,          leads ? parseInt(leads) : 0)
@@ -273,7 +273,7 @@ router.put('/metas/:id', verificarToken, verificarPermisoModulo('marketing_metas
 
         await pool.request()
             .input('id',         sql.Int,          id)
-            .input('periodo',    sql.Date,         id_periodo ? id_periodo.toString().trim() : p.ID_Periodo)
+            .input('periodo',    sql.NVarChar,     id_periodo ? id_periodo.toString().trim() : p.ID_Periodo)
             .input('pais',       sql.NVarChar,     pais       ? pais.trim() : p.Pais)
             .input('tipo',       sql.NVarChar,     tipo_leads        || p.TipoLeads)
             .input('leads',      sql.Int,          leads             !== undefined ? parseInt(leads)                       : p.Leads)
