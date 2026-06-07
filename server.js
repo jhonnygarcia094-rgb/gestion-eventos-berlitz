@@ -17,8 +17,10 @@ if (missingVars.length > 0) {
 const app = express();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Seguridad: Helmet (headers HTTP seguros)
+// Seguridad: Helmet y Trust Proxy (para Render)
 // ─────────────────────────────────────────────────────────────────────────────
+app.set('trust proxy', 1); // Confiar en el proxy de Render para express-rate-limit
+
 app.use(helmet({
     contentSecurityPolicy: false, // Desactivar CSP para permitir CDNs (FontAwesome, Google Fonts)
     crossOriginEmbedderPolicy: false
